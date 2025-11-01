@@ -1,7 +1,7 @@
 import { Router, Request, Response } from 'express';
 import { db } from '../db';
 import { users } from '@shared/schema';
-import { eq, desc, like, or, sql, count } from 'drizzle-orm';
+import { eq, desc, like, or, and, sql, count } from 'drizzle-orm';
 import { isAuthenticated } from '../localAuth';
 import { requireRole } from '../middleware/auth';
 import { UserRole, UserRoleType } from '@shared/schema';
@@ -60,7 +60,7 @@ router.get('/users', async (req: Request, res: Response) => {
     const whereClause = conditions.length > 0 
       ? conditions.length === 1 
         ? conditions[0] 
-        : sql`${conditions[0]} AND ${conditions[1]}`
+        : and(...conditions)
       : undefined;
 
     // Get users with pagination

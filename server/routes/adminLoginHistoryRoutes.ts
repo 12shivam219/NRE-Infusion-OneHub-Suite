@@ -142,7 +142,7 @@ router.get('/users/:id/active-sessions', async (req: Request, res: Response) => 
       where: and(
         eq(userDevices.userId, id),
         eq(userDevices.isRevoked, false),
-        sql`${userDevices.expiresAt} > NOW()`
+        sql`${userDevices.expiresAt} > ${new Date()}`
       ),
       orderBy: [desc(userDevices.lastActive)]
     });

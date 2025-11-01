@@ -1,7 +1,7 @@
 import { Router, Request, Response } from 'express';
 import { db } from '../db';
 import { users, ApprovalStatus } from '@shared/schema';
-import { eq, and, or, desc, count } from 'drizzle-orm';
+import { eq, and, or, desc, count, inArray, gte, lt } from 'drizzle-orm';
 import { isAuthenticated } from '../localAuth';
 import { requireRole } from '../middleware/auth';
 import { UserRole } from '@shared/schema';
@@ -118,6 +118,8 @@ router.get('/approval-stats', async (req: Request, res: Response) => {
     // Get today's pending count
     const today = new Date();
     today.setHours(0, 0, 0, 0);
+    const tomorrow = new Date(today);
+    tomorrow.setDate(tomorrow.getDate() + 1);
     
     const todayPendingQuery = await db
       .select({ count: count() })
@@ -125,7 +127,8 @@ router.get('/approval-stats', async (req: Request, res: Response) => {
       .where(
         and(
           eq(users.approvalStatus, ApprovalStatus.PENDING_APPROVAL),
-          eq(users.createdAt, today as any)
+          gte(users.createdAt, today),
+          lt(users.createdAt, tomorrow)
         )
       );
 
@@ -330,7 +333,7 @@ router.post('/users/bulk-approve', async (req: Request, res: Response) => {
       .where(
         and(
           eq(users.approvalStatus, ApprovalStatus.PENDING_APPROVAL),
-          eq(users.id, userIds as any) // This will match any of the IDs
+          inArray(users.id, userIds)
         )
       );
 

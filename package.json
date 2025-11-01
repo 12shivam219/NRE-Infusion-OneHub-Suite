@@ -4,6 +4,8 @@
   "type": "module",
   "license": "MIT",
   "scripts": {
+    "migrate:error-reports": "cross-env NODE_ENV=development tsx scripts/apply-error-reports-migration.ts",
+    "migrate:marketing": "cross-env NODE_ENV=development tsx scripts/create-marketing-tables.ts",
     "dev": "npm run check:env && npm run dev:server",
     "dev:server": "cross-env NODE_ENV=development tsx server/index.ts",
     "dev:client": "vite",
@@ -32,8 +34,6 @@
     "postinstall": "node scripts/generate-session-secret.mjs",
     "check:env": "node scripts/check-env.js",
     "generate:token-key": "npx tsx scripts/generate-token-key.ts",
-    "test:email": "npx tsx scripts/test-send-email.ts",
-    "generate:test-requirements": "npx tsx scripts/generate-test-requirements.ts",
     "generate:quick-requirements": "npx tsx scripts/quick-requirements-generator.ts",
     "generate:quick-consultants": "npx tsx scripts/quick-consultants-generator.ts",
     "docker:logs": "docker-compose logs -f",

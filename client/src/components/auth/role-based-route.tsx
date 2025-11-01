@@ -1,3 +1,4 @@
+import React from 'react';
 import { useLocation } from 'wouter';
 import { useAuth } from '@/hooks/useAuth';
 import { Navigate } from 'react-router-dom';
@@ -27,11 +28,14 @@ export function RoleBasedRoute({ children, allowedRoles }: RoleBasedRouteProps) 
 
   // Redirect to login if not authenticated
   if (!isAuthenticated || !user) {
-    // Navigate to login with redirect URL
     const redirectUrl = `/login?redirect=${encodeURIComponent(location)}`;
-    if (location !== redirectUrl) {
-      setLocation(redirectUrl);
-    }
+    // Use useEffect to handle navigation
+    React.useEffect(() => {
+      if (location !== redirectUrl) {
+        setLocation(redirectUrl);
+      }
+    }, [location, redirectUrl]);
+
     return null;
   }
 

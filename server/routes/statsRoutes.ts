@@ -16,14 +16,22 @@ router.use(isAuthenticated);
  */
 router.get('/marketing/stats', async (req, res) => {
   try {
-    const userId = req.user!.id;
+    if (!req.user?.id) {
+      return res.status(401).json({ 
+        message: 'Not authenticated',
+        activeRequirements: { total: 0, weeklyChange: 0, trend: 'neutral' },
+        upcomingInterviews: { total: 0, nextInterview: 'No upcoming' },
+        activeConsultants: { total: 0, monthlyChange: 0, trend: 'neutral' }
+      });
+    }
+    const userId = req.user.id;
     
     // Calculate date for "this week" comparison
     const oneWeekAgo = new Date();
     oneWeekAgo.setDate(oneWeekAgo.getDate() - 7);
     
     // Get active requirements count and weekly change
-    const [activeRequirementsData] = await queryWithTimeout(
+    const [activeRequirementsData = { total: 0, thisWeek: 0 }] = await queryWithTimeout(
       () => db.select({
         total: sql<number>`COUNT(*)`,
         thisWeek: sql<number>`COUNT(*) FILTER (WHERE created_at >= ${oneWeekAgo})`,
@@ -38,7 +46,7 @@ router.get('/marketing/stats', async (req, res) => {
     
     // Get upcoming interviews (future interviews)
     const now = new Date();
-    const [upcomingInterviewsData] = await queryWithTimeout(
+    const [upcomingInterviewsData = { total: 0, nextInterview: null }] = await queryWithTimeout(
       () => db.select({
         total: sql<number>`COUNT(*)`,
         nextInterview: sql<Date>`MIN(interview_date)`,
@@ -55,7 +63,7 @@ router.get('/marketing/stats', async (req, res) => {
     const oneMonthAgo = new Date();
     oneMonthAgo.setMonth(oneMonthAgo.getMonth() - 1);
     
-    const [activeConsultantsData] = await queryWithTimeout(
+    const [activeConsultantsData = { total: 0, thisMonth: 0 }] = await queryWithTimeout(
       () => db.select({
         total: sql<number>`COUNT(*)`,
         thisMonth: sql<number>`COUNT(*) FILTER (WHERE created_at >= ${oneMonthAgo})`,

@@ -1,13 +1,17 @@
 import { Router, Request, Response } from 'express';
 import { isAuthenticated } from '../localAuth';
-
+import { requireRole } from '../middleware/auth';
+import { UserRole } from '@shared/schema';
 import { db } from '../db';
 import { userActivities } from '@shared/activity';
-import { sql } from 'drizzle-orm';
+import { sql, and } from 'drizzle-orm';
 import { logger } from '../utils/logger';
 
 const router = Router();
-// Role-based access control removed for now - using basic authentication only
+
+// All admin activity routes require authentication and admin role
+router.use(isAuthenticated);
+router.use(requireRole(UserRole.ADMIN));
 
 interface ActivityQuery {
   startDate?: string;
@@ -32,22 +36,27 @@ router.get('/activities', isAuthenticated, async (req: Request, res: Response) =
     const startDate = startDateStr ? new Date(startDateStr) : new Date(Date.now() - 30 * 24 * 60 * 60 * 1000);
     const endDate = endDateStr ? new Date(endDateStr) : new Date();
 
-    let query = sql`
-      SELECT strftime('%Y-%m-%d', datetime(created_at/1000, 'unixepoch')) AS day, 
-             COUNT(*) AS total
-      FROM user_activities
-      WHERE created_at BETWEEN ${startDate.getTime()} AND ${endDate.getTime()}
-    `;
+    const conditions = [
+      sql`created_at BETWEEN ${startDate.getTime()} AND ${endDate.getTime()}`
+    ];
 
     if (userId) {
-      query = sql`${query} AND user_id = ${userId}`;
+      conditions.push(sql`user_id = ${userId}`);
     }
 
     if (activityType) {
-      query = sql`${query} AND activity_type = ${activityType}`;
+      conditions.push(sql`activity_type = ${activityType}`);
     }
 
-    query = sql`${query}
+    const whereClause = conditions.length > 1 
+      ? sql`WHERE ${sql.join(conditions, sql` AND `)}`
+      : sql`WHERE ${conditions[0]}`;
+
+    const query = sql`
+      SELECT strftime('%Y-%m-%d', datetime(created_at/1000, 'unixepoch')) AS day, 
+             COUNT(*) AS total
+      FROM user_activities
+      ${whereClause}
       GROUP BY day
       ORDER BY day
     `;
@@ -74,24 +83,28 @@ router.get('/devices', isAuthenticated, async (req: Request, res: Response) => {
     const startDate = startDateStr ? new Date(startDateStr) : new Date(Date.now() - 30 * 24 * 60 * 60 * 1000);
     const endDate = endDateStr ? new Date(endDateStr) : new Date();
 
-    let baseQuery = sql`
-      WHERE created_at BETWEEN ${startDate.getTime()} AND ${endDate.getTime()}
-    `;
+    const conditions = [
+      sql`created_at BETWEEN ${startDate.getTime()} AND ${endDate.getTime()}`
+    ];
 
     if (userId) {
-      baseQuery = sql`${baseQuery} AND user_id = ${userId}`;
+      conditions.push(sql`user_id = ${userId}`);
     }
 
     if (activityType) {
-      baseQuery = sql`${baseQuery} AND activity_type = ${activityType}`;
+      conditions.push(sql`activity_type = ${activityType}`);
     }
+
+    const whereClause = conditions.length > 1 
+      ? sql`WHERE ${sql.join(conditions, sql` AND `)}`
+      : sql`WHERE ${conditions[0]}`;
 
     const browsers = await db.execute(sql`
       SELECT 
         COALESCE(json_extract(device_info, '$.browser'), 'Unknown') AS label,
         COUNT(*) AS value
       FROM user_activities
-      ${baseQuery}
+      ${whereClause}
       GROUP BY label
       ORDER BY value DESC
       LIMIT 10
@@ -102,7 +115,7 @@ router.get('/devices', isAuthenticated, async (req: Request, res: Response) => {
         COALESCE(json_extract(device_info, '$.os'), 'Unknown') AS label,
         COUNT(*) AS value
       FROM user_activities
-      ${baseQuery}
+      ${whereClause}
       GROUP BY label
       ORDER BY value DESC
       LIMIT 10
@@ -128,23 +141,28 @@ router.get('/geo', isAuthenticated, async (req: Request, res: Response) => {
     const startDate = startDateStr ? new Date(startDateStr) : new Date(Date.now() - 30 * 24 * 60 * 60 * 1000);
     const endDate = endDateStr ? new Date(endDateStr) : new Date();
 
-    let query = sql`
+    const conditions = [
+      sql`created_at BETWEEN ${startDate.getTime()} AND ${endDate.getTime()}`
+    ];
+
+    if (userId) {
+      conditions.push(sql`user_id = ${userId}`);
+    }
+
+    if (activityType) {
+      conditions.push(sql`activity_type = ${activityType}`);
+    }
+
+    const whereClause = conditions.length > 1 
+      ? sql`WHERE ${sql.join(conditions, sql` AND `)}`
+      : sql`WHERE ${conditions[0]}`;
+
+    const query = sql`
       SELECT 
         COALESCE(json_extract(geolocation, '$.country'), 'Unknown') AS label,
         COUNT(*) AS value
       FROM user_activities
-      WHERE created_at BETWEEN ${startDate.getTime()} AND ${endDate.getTime()}
-    `;
-
-    if (userId) {
-      query = sql`${query} AND user_id = ${userId}`;
-    }
-
-    if (activityType) {
-      query = sql`${query} AND activity_type = ${activityType}`;
-    }
-
-    query = sql`${query}
+      ${whereClause}
       GROUP BY label
       ORDER BY value DESC
       LIMIT 20

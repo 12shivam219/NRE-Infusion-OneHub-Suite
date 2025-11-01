@@ -61,12 +61,46 @@ router.post('/', async (req, res) => {
 // Get all error reports (admin only)
 router.get('/', isAuthenticated, requireRole(UserRole.ADMIN), async (req, res) => {
   try {
-    const reports = await db.select().from(errorReports).orderBy(desc(errorReports.createdAt));
+    // First test the database connection
+    const isConnected = await testDatabaseConnection();
+    if (!isConnected) {
+      throw new Error('Database connection is not available');
+    }
+
+    // Use queryWithTimeout to prevent hanging queries
+    const reports = await queryWithTimeout(async () => {
+      return await db.select().from(errorReports).orderBy(desc(errorReports.createdAt));
+    });
+
+    // Add debug logging for successful queries
+    logger.debug({
+      userId: req.user?.id,
+      userEmail: req.user?.email,
+      reportsCount: reports.length
+    }, 'Successfully fetched error reports');
 
     res.json(reports);
-  } catch (error) {
-    logger.error({ error }, 'Failed to fetch error reports');
-    res.status(500).json({ message: 'Failed to fetch error reports' });
+  } catch (error: any) {
+    // More detailed error logging
+    logger.error({
+      error: error?.message || error,
+      stack: error?.stack,
+      userId: req.user?.id,
+      userEmail: req.user?.email
+    }, 'Failed to fetch error reports');
+
+    // Send more specific error messages based on the error type
+    if (error?.message?.includes('connection')) {
+      res.status(503).json({ 
+        message: 'Database service temporarily unavailable',
+        details: process.env.NODE_ENV === 'development' ? error.message : undefined
+      });
+    } else {
+      res.status(500).json({ 
+        message: 'Failed to fetch error reports',
+        details: process.env.NODE_ENV === 'development' ? error.message : undefined
+      });
+    }
   }
 });
 
@@ -91,3 +125,23 @@ router.patch('/:id', isAuthenticated, requireRole(UserRole.ADMIN), async (req, r
 });
 
 export default router;
+
+async function testDatabaseConnection(): Promise<boolean> {
+  try {
+    // Perform a simple query to check if the database is reachable
+    await db.select({ id: errorReports.id }).from(errorReports).limit(1);
+    return true;
+  } catch (error) {
+    logger.error({ error }, 'Database connection test failed');
+    return false;
+  }
+}
+async function queryWithTimeout<T>(queryFn: () => Promise<T>, timeoutMs = 10000): Promise<T> {
+  return await Promise.race([
+    queryFn(),
+    new Promise<T>((_, reject) =>
+      setTimeout(() => reject(new Error('Database query timed out')), timeoutMs)
+    ),
+  ]);
+}
+

@@ -35,12 +35,26 @@ export default function ErrorReportsPage() {
   const { toast } = useToast();
   const queryClient = useQueryClient();
 
-  const { data: reports, isLoading } = useQuery({
+  const {
+    data: reports,
+    isLoading,
+    error,
+  } = useQuery({
     queryKey: ['errorReports'],
     queryFn: async () => {
-      const response = await apiRequest('GET', '/api/error-reports');
-      return response.json();
+      try {
+        const response = await apiRequest('GET', '/api/error-reports');
+        if (!response.ok) {
+          const errorData = await response.json().catch(() => ({}));
+          throw new Error(errorData.message || `HTTP error! status: ${response.status}`);
+        }
+        return response.json();
+      } catch (err) {
+        console.error('Error fetching reports:', err);
+        throw err;
+      }
     },
+    retry: 1, // Try once more in case of temporary network issues
   });
 
   const updateReport = useMutation({
@@ -72,7 +86,48 @@ export default function ErrorReportsPage() {
   };
 
   if (isLoading) {
-    return <div>Loading...</div>;
+    return <div className="container mx-auto py-10">Loading...</div>;
+  }
+
+  if (error) {
+    return (
+      <div className="container mx-auto py-10">
+        <div className="bg-red-50 border border-red-200 text-red-800 rounded-md p-4">
+          {error instanceof Error ? (
+            <>
+              {error.message.includes('401') ? (
+                <>
+                  <h3 className="font-bold mb-2">Access Denied</h3>
+                  <p>
+                    You do not have permission to view error reports. Please contact an
+                    administrator.
+                  </p>
+                </>
+              ) : error.message.includes('500') ? (
+                <>
+                  <h3 className="font-bold mb-2">Server Error</h3>
+                  <p>There was a problem loading the error reports. Please try again later.</p>
+                  <p className="text-sm mt-2">If this persists, contact technical support.</p>
+                </>
+              ) : (
+                <>
+                  <h3 className="font-bold mb-2">Error</h3>
+                  <p>{error.message}</p>
+                </>
+              )}
+            </>
+          ) : (
+            'An unexpected error occurred. Please try again later.'
+          )}
+        </div>
+        <Button
+          className="mt-4"
+          onClick={() => queryClient.invalidateQueries({ queryKey: ['errorReports'] })}
+        >
+          Retry
+        </Button>
+      </div>
+    );
   }
 
   return (
