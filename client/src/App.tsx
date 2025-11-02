@@ -156,8 +156,8 @@ import { ErrorBoundaryWithReport } from '@/components/ui/error-boundary-with-rep
 
 const App = memo(() => {
   return (
-    <ErrorBoundaryWithReport>
-      <QueryClientProvider client={queryClient}>
+    <QueryClientProvider client={queryClient}>
+      <ErrorBoundaryWithReport>
         <TooltipProvider>
           <Toaster />
           <SonnerToaster
@@ -177,8 +177,8 @@ const App = memo(() => {
           <Router />
           <CookieConsent />
         </TooltipProvider>
-      </QueryClientProvider>
-    </ErrorBoundaryWithReport>
+      </ErrorBoundaryWithReport>
+    </QueryClientProvider>
   );
 });
 App.displayName = 'App';

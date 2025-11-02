@@ -31,13 +31,21 @@ const upload = multer({
   }
 });
 
-router.post('/error-screenshots', upload.single('file'), (req, res) => {
-  if (!req.file) {
-    return res.status(400).json({ message: 'No file uploaded' });
-  }
+// Apply authentication middleware
+import { isAuthenticated } from '../localAuth';
 
-  const url = `/uploads/error-screenshots/${req.file.filename}`;
-  res.json({ url });
+router.post('/error-screenshots', isAuthenticated, upload.single('file'), async (req, res) => {
+  try {
+    if (!req.file) {
+      return res.status(400).json({ message: 'No file uploaded' });
+    }
+
+    const url = `/uploads/error-screenshots/${req.file.filename}`;
+    res.json({ url });
+  } catch (error) {
+    console.error('Error uploading screenshot:', error);
+    res.status(500).json({ message: 'Failed to upload screenshot' });
+  }
 });
 
 export default router;

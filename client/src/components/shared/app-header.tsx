@@ -67,9 +67,7 @@ export function AppHeader({ currentPage = 'dashboard' }: AppHeaderProps) {
             <div className="h-10 w-10 bg-gradient-to-br from-primary to-accent rounded-xl flex items-center justify-center shadow-lg">
               <FileText className="text-white" size={20} />
             </div>
-            <h1 className="text-xl font-bold text-foreground tracking-tight">
-              NRE OneHub Suite
-            </h1>
+            <h1 className="text-xl font-bold text-foreground tracking-tight">NRE OneHub Suite</h1>
           </button>
 
           <nav
@@ -77,53 +75,57 @@ export function AppHeader({ currentPage = 'dashboard' }: AppHeaderProps) {
             role="navigation"
             aria-label="Main navigation"
           >
-            {/* Email Button */}
-            <Tooltip>
-              <TooltipTrigger asChild>
-                <Button
-                  variant={currentPage === 'email' ? 'default' : 'outline'}
-                  size="sm"
-                  onClick={() => navigate('/email')}
-                  className={`transition-all duration-200 ${
-                    currentPage === 'email'
-                      ? 'bg-red-600 text-white hover:bg-red-700'
-                      : 'bg-red-50 border-red-200 text-red-700 hover:bg-red-100'
-                  }`}
-                  data-testid="button-email"
-                  aria-label="Navigate to email page"
-                >
-                  <Mail size={16} className="mr-1" />
-                  <span className="hidden sm:inline">Email</span>
-                </Button>
-              </TooltipTrigger>
-              <TooltipContent side="bottom">
-                Gmail-style email client with multi-account support and secure OAuth.
-              </TooltipContent>
-            </Tooltip>
+            {/* Email Button - Only show for marketing and admin users */}
+            {(user?.role === 'marketing' || user?.role === 'admin') && (
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <Button
+                    variant={currentPage === 'email' ? 'default' : 'outline'}
+                    size="sm"
+                    onClick={() => navigate('/email')}
+                    className={`transition-all duration-200 ${
+                      currentPage === 'email'
+                        ? 'bg-red-600 text-white hover:bg-red-700'
+                        : 'bg-red-50 border-red-200 text-red-700 hover:bg-red-100'
+                    }`}
+                    data-testid="button-email"
+                    aria-label="Navigate to email page"
+                  >
+                    <Mail size={16} className="mr-1" />
+                    <span className="hidden sm:inline">Email</span>
+                  </Button>
+                </TooltipTrigger>
+                <TooltipContent side="bottom">
+                  Gmail-style email client with multi-account support and secure OAuth.
+                </TooltipContent>
+              </Tooltip>
+            )}
 
-            {/* Marketing Button */}
-            <Tooltip>
-              <TooltipTrigger asChild>
-                <Button
-                  variant={currentPage === 'marketing' ? 'default' : 'outline'}
-                  size="sm"
-                  onClick={() => navigate('/marketing')}
-                  className={`transition-all duration-200 ${
-                    currentPage === 'marketing'
-                      ? 'bg-green-600 text-white hover:bg-green-700'
-                      : 'bg-green-50 border-green-200 text-green-700 hover:bg-green-100'
-                  }`}
-                  data-testid="button-marketing"
-                  aria-label="Navigate to marketing page"
-                >
-                  <MessageSquare size={16} className="mr-1" />
-                  <span className="hidden sm:inline">Marketing</span>
-                </Button>
-              </TooltipTrigger>
-              <TooltipContent side="bottom">
-                Create outreach emails, manage templates, and view engagement insights.
-              </TooltipContent>
-            </Tooltip>
+            {/* Marketing Button - Only show for marketing and admin users */}
+            {(user?.role === 'marketing' || user?.role === 'admin') && (
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <Button
+                    variant={currentPage === 'marketing' ? 'default' : 'outline'}
+                    size="sm"
+                    onClick={() => navigate('/marketing')}
+                    className={`transition-all duration-200 ${
+                      currentPage === 'marketing'
+                        ? 'bg-green-600 text-white hover:bg-green-700'
+                        : 'bg-green-50 border-green-200 text-green-700 hover:bg-green-100'
+                    }`}
+                    data-testid="button-marketing"
+                    aria-label="Navigate to marketing page"
+                  >
+                    <MessageSquare size={16} className="mr-1" />
+                    <span className="hidden sm:inline">Marketing</span>
+                  </Button>
+                </TooltipTrigger>
+                <TooltipContent side="bottom">
+                  Create outreach emails, manage templates, and view engagement insights.
+                </TooltipContent>
+              </Tooltip>
+            )}
 
             {/* Multi-Editor Button */}
             <Tooltip>
@@ -189,14 +191,20 @@ export function AppHeader({ currentPage = 'dashboard' }: AppHeaderProps) {
             <div className="flex items-center space-x-3">
               <div className="h-8 w-8 bg-primary rounded-full flex items-center justify-center">
                 <span className="text-sm font-medium text-primary-foreground">
-                  {(user as ClientUser)?.pseudoName?.[0] || (user as ClientUser)?.firstName?.[0] || (user as ClientUser)?.email?.[0] || 'U'}
+                  {(user as ClientUser)?.pseudoName?.[0] ||
+                    (user as ClientUser)?.firstName?.[0] ||
+                    (user as ClientUser)?.email?.[0] ||
+                    'U'}
                 </span>
               </div>
               <span
                 className="text-sm font-medium text-foreground hidden sm:inline-block"
                 data-testid="text-username"
               >
-                {(user as ClientUser)?.pseudoName || (user as ClientUser)?.firstName || (user as ClientUser)?.email || 'User'}
+                {(user as ClientUser)?.pseudoName ||
+                  (user as ClientUser)?.firstName ||
+                  (user as ClientUser)?.email ||
+                  'User'}
               </span>
               <Button
                 variant="outline"

@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import { useLocation } from 'wouter';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
+import { useAuth } from '@/hooks/useAuth';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -87,6 +88,7 @@ export default function AdminPage() {
   const [, setLocation] = useLocation();
   const { toast } = useToast();
   const queryClient = useQueryClient();
+  const { user } = useAuth();
 
   const [search, setSearch] = useState('');
   const [roleFilter, setRoleFilter] = useState('all');
@@ -156,9 +158,15 @@ export default function AdminPage() {
     },
   });
 
+  interface UpdateRoleParams {
+    userId: string;
+    role: string;
+    reason?: string;
+  }
+
   // Update role mutation
   const updateRoleMutation = useMutation({
-    mutationFn: async ({ userId, role }: { userId: string; role: string }) => {
+    mutationFn: async ({ userId, role, reason }: UpdateRoleParams) => {
       const csrfToken = document.cookie
         .split('; ')
         .find((row) => row.startsWith('csrf_token='))
@@ -171,7 +179,7 @@ export default function AdminPage() {
           'X-CSRF-Token': csrfToken || '',
         },
         credentials: 'include',
-        body: JSON.stringify({ role }),
+        body: JSON.stringify({ role, reason }),
       });
 
       if (!res.ok) {
@@ -205,9 +213,63 @@ export default function AdminPage() {
     setIsChangeRoleOpen(true);
   };
 
-  const handleSaveRole = () => {
+  const handleSaveRole = async () => {
     if (selectedUser && newRole) {
-      updateRoleMutation.mutate({ userId: selectedUser.id, role: newRole });
+      try {
+        // Check if user is trying to remove their own admin role
+        const isRemovingOwnAdminRole =
+          selectedUser.role === 'admin' && newRole !== 'admin' && selectedUser.id === user?.id; // assuming you have current user from useAuth()
+
+        // Check if this is the last admin when removing admin role
+        if (selectedUser.role === 'admin' && newRole !== 'admin') {
+          const response = await fetch('/api/admin/count-admins', {
+            credentials: 'include',
+          });
+
+          if (response.ok) {
+            const { count } = await response.json();
+            if (count <= 1) {
+              toast({
+                variant: 'destructive',
+                title: 'Critical Security Warning',
+                description:
+                  'This action cannot be performed. The system requires at least one administrator to maintain system security.',
+              });
+              return;
+            }
+
+            // If removing own admin privileges
+            if (isRemovingOwnAdminRole) {
+              const confirmed = window.confirm(
+                `⚠️ CRITICAL WARNING ⚠️\n\n` +
+                  `You are about to remove your own administrator privileges.\n\n` +
+                  `This will:\n` +
+                  `- Immediately remove your access to the admin panel\n` +
+                  `- Require another admin to restore your privileges if needed\n` +
+                  `- Log you out of the admin section\n\n` +
+                  `Are you absolutely sure you want to continue?`
+              );
+
+              if (!confirmed) {
+                return;
+              }
+            }
+          }
+        }
+
+        updateRoleMutation.mutate({
+          userId: selectedUser.id,
+          role: newRole,
+          reason: isRemovingOwnAdminRole ? 'Admin self-demotion' : undefined,
+        });
+      } catch (error) {
+        console.error('Error in role change:', error);
+        toast({
+          variant: 'destructive',
+          title: 'Error',
+          description: 'Failed to process role change. Please try again.',
+        });
+      }
     }
   };
 
@@ -296,10 +358,7 @@ export default function AdminPage() {
               <AlertTriangle className="h-4 w-4 mr-2" />
               Security
             </Button>
-            <Button
-              onClick={() => setLocation('/admin/error-reports')}
-              variant="outline"
-            >
+            <Button onClick={() => setLocation('/admin/error-reports')} variant="outline">
               <AlertCircle className="h-4 w-4 mr-2" />
               Error Reports
             </Button>

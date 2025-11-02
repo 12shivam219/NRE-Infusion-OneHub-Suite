@@ -18,7 +18,8 @@ router.use(requireRole(UserRole.ADMIN));
 // Validation schemas
 const updateRoleSchema = z.object({
   userId: z.string().uuid('Invalid user ID'),
-  role: z.enum([UserRole.USER, UserRole.MARKETING, UserRole.ADMIN])
+  role: z.enum([UserRole.USER, UserRole.MARKETING, UserRole.ADMIN]),
+  reason: z.string().optional()
 });
 
 const searchUsersSchema = z.object({
@@ -176,12 +177,29 @@ router.patch('/users/:id/role', async (req: Request, res: Response) => {
       return res.status(404).json({ message: 'User not found' });
     }
 
-    // Prevent self-demotion from admin
-    if (targetUser.id === req.user?.id && role !== UserRole.ADMIN) {
-      return res.status(400).json({ 
-        message: 'Cannot change your own admin role',
-        code: 'SELF_DEMOTION_PREVENTED'
-      });
+    // Check if removing admin role
+    if (targetUser.role === UserRole.ADMIN && role !== UserRole.ADMIN) {
+      // Count number of admins
+      const adminCount = await db
+        .select({ count: count() })
+        .from(users)
+        .where(eq(users.role, UserRole.ADMIN));
+
+      // Prevent removing last admin
+      if (Number(adminCount[0]?.count || 0) <= 1) {
+        return res.status(400).json({
+          message: 'Cannot remove the last administrator',
+          code: 'LAST_ADMIN_REMOVAL_PREVENTED'
+        });
+      }
+
+      // Prevent self-demotion from admin
+      if (targetUser.id === req.user?.id) {
+        return res.status(400).json({ 
+          message: 'Cannot change your own admin role',
+          code: 'SELF_DEMOTION_PREVENTED'
+        });
+      }
     }
 
     // Update user role
@@ -289,6 +307,24 @@ router.get('/roles', async (req: Request, res: Response) => {
   } catch (error) {
     logger.error({ error }, 'Failed to fetch roles');
     res.status(500).json({ message: 'Failed to fetch roles' });
+  }
+});
+
+/**
+ * GET /api/admin/count-admins
+ * Get count of admin users
+ */
+router.get('/count-admins', async (req: Request, res: Response) => {
+  try {
+    const adminCount = await db
+      .select({ count: count() })
+      .from(users)
+      .where(eq(users.role, UserRole.ADMIN));
+
+    res.json({ count: Number(adminCount[0]?.count || 0) });
+  } catch (error) {
+    logger.error({ error, adminId: req.user?.id }, 'Failed to count admin users');
+    res.status(500).json({ message: 'Failed to count admin users' });
   }
 });
 

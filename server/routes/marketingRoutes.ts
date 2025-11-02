@@ -355,13 +355,40 @@ async function generateConsultantDisplayId(): Promise<string> {
   return `CONST ID - ${nextNumber}`;
 }
 
+// Function to validate requirement ID format
+function validateRequirementId(id: string): boolean {
+  const pattern = /^REQ-\d{6}-\d{4}$/;
+  return pattern.test(id);
+}
+
 async function generateRequirementDisplayId(): Promise<string> {
-  // Get the maximum ID number currently in use
-  const result = await db.select({ 
-    maxId: sql<number>`COALESCE(MAX(CAST(SUBSTRING(display_id FROM 9) AS INTEGER)), 0)` 
-  }).from(requirements);
-  const nextNumber = result[0]?.maxId + 1;
-  return `REQ ID - ${nextNumber}`;
+  const today = new Date();
+  const year = today.getFullYear();
+  const month = (today.getMonth() + 1).toString().padStart(2, '0');
+  const prefix = `REQ-${year}${month}`;
+
+  // Get the latest requirement ID for this month using a transaction to prevent race conditions
+  const result = await executeTransaction(async (tx) => {
+    const [latestId] = await tx
+      .select({ 
+        maxId: sql<string>`max(display_id)` 
+      })
+      .from(requirements)
+      .where(
+        sql`display_id LIKE ${prefix + '-%'}`
+      );
+
+    let sequence = 1;
+    if (latestId.maxId) {
+      const lastSequence = parseInt(latestId.maxId.split('-')[2]);
+      sequence = lastSequence + 1;
+    }
+
+    // Generate new ID with padded sequence number
+    return `${prefix}-${sequence.toString().padStart(4, '0')}`;
+  });
+
+  return result;
 }
 
 async function generateInterviewDisplayId(): Promise<string> {
@@ -788,8 +815,13 @@ router.post('/requirements', conditionalCSRF, writeOperationsRateLimiter, async 
       // Single requirement - sanitize input
       const sanitizedData = sanitizeRequirementData(req.body);
       
-      // Generate display ID
+      // Generate sequential display ID
       const displayId = await generateRequirementDisplayId();
+      
+      // Validate the generated ID
+      if (!validateRequirementId(displayId)) {
+        throw new Error('Invalid requirement ID format generated');
+      }
       
       const requirementData = insertRequirementSchema.parse({
         ...sanitizedData,
@@ -797,10 +829,8 @@ router.post('/requirements', conditionalCSRF, writeOperationsRateLimiter, async 
         createdBy: req.user!.id,
         marketingComments: []
       });
-      
-      const [newRequirement] = await db.insert(requirements).values(requirementData as any).returning();
-      
-      // Log audit trail
+
+      const [newRequirement] = await db.insert(requirements).values(requirementData as any).returning();      // Log audit trail
       await logCreate(req.user!.id, 'requirement', newRequirement.id, newRequirement, req);
       
       res.status(201).json(newRequirement);
@@ -810,17 +840,38 @@ router.post('/requirements', conditionalCSRF, writeOperationsRateLimiter, async 
         return res.status(400).json({ message: 'Requirements array is required for bulk creation' });
       }
 
-      // Sanitize all requirements and generate display IDs
-      const requirementDataArray = await Promise.all(reqArray.map(async (reqData) => {
+      // Generate display IDs in sequence for bulk creation
+      const today = new Date();
+      const year = today.getFullYear();
+      const month = (today.getMonth() + 1).toString().padStart(2, '0');
+      const prefix = `REQ-${year}${month}`;
+
+      // Get the starting sequence number for bulk creation
+      const [latestId] = await db
+        .select({ 
+          maxId: sql<string>`max(display_id)` 
+        })
+        .from(requirements)
+        .where(
+          sql`display_id LIKE ${prefix + '-%'}`
+        );
+
+      let sequence = 1;
+      if (latestId.maxId) {
+        sequence = parseInt(latestId.maxId.split('-')[2]) + 1;
+      }
+
+      // Create requirements with sequential IDs
+      const requirementDataArray = reqArray.map((reqData, index) => {
         const sanitizedData = sanitizeRequirementData(reqData);
-        const displayId = await generateRequirementDisplayId();
+        const displayId = `${prefix}-${(sequence + index).toString().padStart(4, '0')}`;
         return insertRequirementSchema.parse({
           ...sanitizedData,
           displayId,
           createdBy: req.user!.id,
           marketingComments: []
         });
-      }));
+      });
 
       const newRequirements = await db.insert(requirements).values(requirementDataArray as any).returning();
       

@@ -1,7 +1,6 @@
 import React from 'react';
 import { useLocation } from 'wouter';
 import { useAuth } from '@/hooks/useAuth';
-import { Navigate } from 'react-router-dom';
 
 interface RoleBasedRouteProps {
   children: React.ReactNode;
@@ -17,6 +16,24 @@ export function RoleBasedRoute({ children, allowedRoles }: RoleBasedRouteProps) 
   const { user, isLoading, isAuthenticated } = useAuth();
   const [location, setLocation] = useLocation();
 
+  // Always declare useEffect, but control its behavior with state
+  React.useEffect(() => {
+    if (!isLoading) {
+      if (!isAuthenticated || !user) {
+        const redirectUrl = `/login?redirect=${encodeURIComponent(location)}`;
+        if (location !== redirectUrl) {
+          setLocation(redirectUrl);
+        }
+      } else {
+        const userRole = user.role || 'user';
+        const hasRequiredRole = allowedRoles.includes(userRole);
+        if (!hasRequiredRole) {
+          setLocation('/unauthorized');
+        }
+      }
+    }
+  }, [isLoading, isAuthenticated, user, location, allowedRoles]);
+
   // Show loading state while checking authentication
   if (isLoading) {
     return (
@@ -26,26 +43,16 @@ export function RoleBasedRoute({ children, allowedRoles }: RoleBasedRouteProps) 
     );
   }
 
-  // Redirect to login if not authenticated
+  // Don't render children until we're sure about authentication and authorization
   if (!isAuthenticated || !user) {
-    const redirectUrl = `/login?redirect=${encodeURIComponent(location)}`;
-    // Use useEffect to handle navigation
-    React.useEffect(() => {
-      if (location !== redirectUrl) {
-        setLocation(redirectUrl);
-      }
-    }, [location, redirectUrl]);
-
     return null;
   }
 
-  // Check if user has required role
   const userRole = user.role || 'user';
   const hasRequiredRole = allowedRoles.includes(userRole);
 
   if (!hasRequiredRole) {
-    // Redirect to unauthorized page or dashboard
-    return <Navigate to="/unauthorized" />;
+    return null;
   }
 
   // User has required role, render children
