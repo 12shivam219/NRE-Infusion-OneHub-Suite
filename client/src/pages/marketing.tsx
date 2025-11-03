@@ -1,4 +1,4 @@
-import { useState, useMemo, useEffect } from 'react';
+import { useState, useMemo, useEffect, lazy, Suspense } from 'react';
 import { useAuth } from '@/hooks/useAuth';
 import { useLocation } from 'wouter';
 import { useQuery } from '@tanstack/react-query';
@@ -7,19 +7,83 @@ import { usePageVisibility } from '@/hooks/usePageVisibility';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
-import { FileText, Calendar, Users, Download, Plus, Filter, BarChart3, type LucideIcon } from 'lucide-react';
+import {
+  FileText,
+  Calendar,
+  Users,
+  Download,
+  Plus,
+  Filter,
+  BarChart3,
+  type LucideIcon,
+} from 'lucide-react';
 import { AppHeader } from '@/components/shared/app-header';
 import { BreadcrumbNavigation } from '@/components/shared/breadcrumb-navigation';
 import { EnhancedHeader } from '@/components/shared/enhanced-header';
 import { MetricCard, StatusDistribution } from '@/components/ui/data-visualization';
 
-// Import Marketing components
-import RequirementsSection from '@/components/marketing/requirements-section';
-import InterviewsSection from '@/components/marketing/interviews-section';
-import ConsultantsSection from '@/components/marketing/consultants-section';
-import AdvancedRequirementsForm from '@/components/marketing/advanced-requirements-form';
-import InterviewForm from '@/components/marketing/interview-form';
-import AdvancedConsultantForm from '@/components/marketing/advanced-consultant-form';
+// Import Marketing components with prefetch
+const RequirementsSection = lazy(() => {
+  const component = import('@/components/marketing/requirements-section');
+  component.then((module) => {
+    // Prefetch related components
+    import('@/components/marketing/advanced-requirements-form');
+  });
+  return component;
+});
+
+const InterviewsSection = lazy(() => {
+  const component = import('@/components/marketing/interviews-section');
+  component.then((module) => {
+    // Prefetch related components
+    import('@/components/marketing/interview-form');
+  });
+  return component;
+});
+
+const ConsultantsSection = lazy(() => {
+  const component = import('@/components/marketing/consultants-section');
+  component.then((module) => {
+    // Prefetch related components
+    import('@/components/marketing/advanced-consultant-form');
+  });
+  return component;
+});
+
+// Forms are loaded only when needed with dynamic imports and prefetch optimization
+const AdvancedRequirementsForm = lazy(() => {
+  const componentPromise = import('@/components/marketing/advanced-requirements-form');
+  // Only prefetch if the user has good network conditions
+  if ((navigator as any).connection?.effectiveType === '4g') {
+    componentPromise.then(() => {
+      // Warm up the module
+      import('@/components/marketing/requirements-section');
+    });
+  }
+  return componentPromise;
+});
+
+const InterviewForm = lazy(() => {
+  const componentPromise = import('@/components/marketing/interview-form');
+  if ((navigator as any).connection?.effectiveType === '4g') {
+    componentPromise.then(() => {
+      // Warm up the module
+      import('@/components/marketing/interviews-section');
+    });
+  }
+  return componentPromise;
+});
+
+const AdvancedConsultantForm = lazy(() => {
+  const componentPromise = import('@/components/marketing/advanced-consultant-form');
+  if ((navigator as any).connection?.effectiveType === '4g') {
+    componentPromise.then(() => {
+      // Warm up the module
+      import('@/components/marketing/consultants-section');
+    });
+  }
+  return componentPromise;
+});
 // import DebugConsultants from '../../debug-consultants';
 
 export default function MarketingPage() {
@@ -31,6 +95,22 @@ export default function MarketingPage() {
   const [showConsultantForm, setShowConsultantForm] = useState(false);
   const isPageVisible = usePageVisibility();
 
+  // Register Service Worker for caching
+  useEffect(() => {
+    if ('serviceWorker' in navigator) {
+      window.addEventListener('load', () => {
+        navigator.serviceWorker
+          .register('/service-worker.js')
+          .then((registration) => {
+            console.log('SW registered:', registration);
+          })
+          .catch((error) => {
+            console.log('SW registration failed:', error);
+          });
+      });
+    }
+  }, []);
+
   // Initialize CSRF token on page load
   useEffect(() => {
     const initializeCSRF = async () => {
@@ -38,9 +118,9 @@ export default function MarketingPage() {
         // Check if CSRF token exists
         const existingToken = document.cookie
           .split('; ')
-          .find(row => row.startsWith('csrf_token='))
+          .find((row) => row.startsWith('csrf_token='))
           ?.split('=')[1];
-        
+
         if (!existingToken) {
           console.log('🔒 Initializing CSRF token for marketing page...');
           // Make a simple GET request to initialize CSRF token
@@ -86,17 +166,71 @@ export default function MarketingPage() {
     },
   ];
 
-  const activeComponent = useMemo(() => {
-    switch (activeSection) {
+  // Prefetch component based on hover
+  const prefetchComponent = (section: string) => {
+    switch (section) {
       case 'consultants':
-        return <ConsultantsSection />;
+        import('@/components/marketing/consultants-section');
+        break;
       case 'requirements':
-        return <RequirementsSection />;
+        import('@/components/marketing/requirements-section');
+        break;
       case 'interviews':
-        return <InterviewsSection />;
-      default:
-        return <RequirementsSection />;
+        import('@/components/marketing/interviews-section');
+        break;
     }
+  };
+
+  // Error boundary wrapper component
+  const ErrorBoundary = ({ children }: { children: React.ReactNode }) => {
+    const [hasError, setHasError] = useState(false);
+
+    if (hasError) {
+      return (
+        <div className="p-4 text-center">
+          <h3 className="text-lg font-semibold text-red-600">Something went wrong</h3>
+          <button
+            className="mt-2 px-4 py-2 bg-blue-500 text-white rounded"
+            onClick={() => setHasError(false)}
+          >
+            Try again
+          </button>
+        </div>
+      );
+    }
+
+    return (
+      <Suspense
+        fallback={
+          <div className="w-full h-48 flex items-center justify-center">
+            <div className="animate-spin rounded-full h-12 w-12 border-t-2 border-b-2 border-blue-500" />
+          </div>
+        }
+      >
+        {children}
+      </Suspense>
+    );
+  };
+
+  const activeComponent = useMemo(() => {
+    const Component = (() => {
+      switch (activeSection) {
+        case 'consultants':
+          return ConsultantsSection;
+        case 'requirements':
+          return RequirementsSection;
+        case 'interviews':
+          return InterviewsSection;
+        default:
+          return RequirementsSection;
+      }
+    })();
+
+    return (
+      <ErrorBoundary>
+        <Component />
+      </ErrorBoundary>
+    );
   }, [activeSection]);
 
   // Define type for user object
@@ -106,23 +240,43 @@ export default function MarketingPage() {
   }
 
   const marketingUser = user as MarketingUser;
-  
-  // Fetch real stats from API
+
+  // Fetch real stats from API with optimized caching and error handling
   const { data: stats } = useQuery({
     queryKey: ['/api/stats/marketing/stats'],
     queryFn: async () => {
       try {
-        const response = await apiRequest('GET', '/api/stats/marketing/stats');
-        if (!response.ok) {
-          // Return fallback data if API fails
-          return {
-            activeRequirements: { total: 0, weeklyChange: 0, trend: 'neutral' },
-            upcomingInterviews: { total: 0, nextInterview: 'No upcoming' },
-            activeConsultants: { total: 0, monthlyChange: 0, trend: 'neutral' },
-          };
+        // Try to get from cache first
+        const cachedData = localStorage.getItem('marketing_stats');
+        const cacheTime = localStorage.getItem('marketing_stats_time');
+
+        if (cachedData && cacheTime) {
+          const parsedData = JSON.parse(cachedData);
+          const cacheAge = Date.now() - Number(cacheTime);
+
+          // Use cache if it's less than 5 minutes old
+          if (cacheAge < 300000) {
+            return parsedData;
+          }
         }
-        return response.json();
+
+        const response = await apiRequest('GET', '/api/stats/marketing/stats');
+        if (!response.ok) throw new Error('Failed to fetch stats');
+
+        const data = await response.json();
+
+        // Cache the new data
+        localStorage.setItem('marketing_stats', JSON.stringify(data));
+        localStorage.setItem('marketing_stats_time', Date.now().toString());
+
+        return data;
       } catch {
+        // Return cached data if available, otherwise fallback
+        const cachedData = localStorage.getItem('marketing_stats');
+        if (cachedData) {
+          return JSON.parse(cachedData);
+        }
+
         return {
           activeRequirements: { total: 0, weeklyChange: 0, trend: 'neutral' },
           upcomingInterviews: { total: 0, nextInterview: 'No upcoming' },
@@ -130,10 +284,11 @@ export default function MarketingPage() {
         };
       }
     },
-    // Only poll when page is visible (saves battery and network)
     refetchInterval: isPageVisible ? 30000 : false,
-    refetchIntervalInBackground: false, // Don't poll in background
-    staleTime: 15000, // Consider stale after 15 seconds
+    refetchIntervalInBackground: false,
+    staleTime: 300000, // Consider stale after 5 minutes
+    retry: 2, // Retry failed requests twice
+    retryDelay: 1000, // Wait 1 second between retries
   });
 
   // Enhanced header actions
@@ -217,6 +372,7 @@ export default function MarketingPage() {
                 <button
                   key={item.id}
                   onClick={() => setActiveSection(item.id)}
+                  onMouseEnter={() => prefetchComponent(item.id)}
                   className={`group relative px-4 py-3 rounded-lg transition-all duration-200 ${
                     isActive
                       ? 'bg-gradient-to-r from-blue-600 to-indigo-600 text-white shadow-lg shadow-blue-500/30'
@@ -259,11 +415,15 @@ export default function MarketingPage() {
             <MetricCard
               title="Active Requirements"
               value={stats.activeRequirements?.total || 0}
-              previousValue={stats.activeRequirements?.total - (stats.activeRequirements?.weeklyChange || 0)}
+              previousValue={
+                stats.activeRequirements?.total - (stats.activeRequirements?.weeklyChange || 0)
+              }
               icon={FileText as any} // Type assertion needed for Lucide icon compatibility
-              trendValue={stats.activeRequirements?.weeklyChange > 0 
-                ? `+${stats.activeRequirements.weeklyChange} this week`
-                : 'No new this week'}
+              trendValue={
+                stats.activeRequirements?.weeklyChange > 0
+                  ? `+${stats.activeRequirements.weeklyChange} this week`
+                  : 'No new this week'
+              }
               description="Total job requirements being managed"
             />
 
@@ -277,11 +437,15 @@ export default function MarketingPage() {
             <MetricCard
               title="Active Consultants"
               value={stats.activeConsultants?.total || 0}
-              previousValue={stats.activeConsultants?.total - (stats.activeConsultants?.monthlyChange || 0)}
+              previousValue={
+                stats.activeConsultants?.total - (stats.activeConsultants?.monthlyChange || 0)
+              }
               icon={Users as any} // Type assertion needed for Lucide icon compatibility
-              trendValue={stats.activeConsultants?.monthlyChange > 0
-                ? `+${stats.activeConsultants.monthlyChange} this month`
-                : 'No new this month'}
+              trendValue={
+                stats.activeConsultants?.monthlyChange > 0
+                  ? `+${stats.activeConsultants.monthlyChange} this month`
+                  : 'No new this month'
+              }
               description="Consultants available for placement"
             />
           </div>
@@ -300,7 +464,7 @@ export default function MarketingPage() {
                 { status: 'Cancelled', count: 3, color: '#ef4444' },
               ]}
             />
-            
+
             <Card>
               <CardHeader>
                 <CardTitle className="text-lg">Recent Activity</CardTitle>
@@ -317,7 +481,7 @@ export default function MarketingPage() {
                     </div>
                     <span className="text-xs text-slate-500">2h ago</span>
                   </div>
-                  
+
                   <div className="flex items-center space-x-3 p-3 bg-green-50 rounded-lg">
                     <div className="h-8 w-8 bg-green-100 rounded-full flex items-center justify-center">
                       <Calendar size={16} className="text-green-600" />
@@ -328,7 +492,7 @@ export default function MarketingPage() {
                     </div>
                     <span className="text-xs text-slate-500">4h ago</span>
                   </div>
-                  
+
                   <div className="flex items-center space-x-3 p-3 bg-purple-50 rounded-lg">
                     <div className="h-8 w-8 bg-purple-100 rounded-full flex items-center justify-center">
                       <Users size={16} className="text-purple-600" />

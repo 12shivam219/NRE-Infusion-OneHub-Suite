@@ -367,28 +367,24 @@ async function generateRequirementDisplayId(): Promise<string> {
   const month = (today.getMonth() + 1).toString().padStart(2, '0');
   const prefix = `REQ-${year}${month}`;
 
-  // Get the latest requirement ID for this month using a transaction to prevent race conditions
-  const result = await executeTransaction(async (tx) => {
-    const [latestId] = await tx
-      .select({ 
-        maxId: sql<string>`max(display_id)` 
-      })
-      .from(requirements)
-      .where(
-        sql`display_id LIKE ${prefix + '-%'}`
-      );
+  // Get the latest requirement ID for this month without using a transaction
+  const [latestId] = await db
+    .select({ 
+      maxId: sql<string>`max(display_id)` 
+    })
+    .from(requirements)
+    .where(
+      sql`display_id LIKE ${prefix + '-%'}`
+    );
 
-    let sequence = 1;
-    if (latestId.maxId) {
-      const lastSequence = parseInt(latestId.maxId.split('-')[2]);
-      sequence = lastSequence + 1;
-    }
+  let sequence = 1;
+  if (latestId.maxId) {
+    const lastSequence = parseInt(latestId.maxId.split('-')[2]);
+    sequence = lastSequence + 1;
+  }
 
-    // Generate new ID with padded sequence number
-    return `${prefix}-${sequence.toString().padStart(4, '0')}`;
-  });
-
-  return result;
+  // Generate new ID with padded sequence number
+  return `${prefix}-${sequence.toString().padStart(4, '0')}`;
 }
 
 async function generateInterviewDisplayId(): Promise<string> {

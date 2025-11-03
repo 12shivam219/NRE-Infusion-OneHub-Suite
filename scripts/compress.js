@@ -3,50 +3,124 @@ import fs from 'fs';
 import path from 'path';
 import zlib from 'zlib';
 
-function compressFile(filePath) {
+async function compressFile(filePath) {
   const ext = path.extname(filePath).toLowerCase();
-  if (!['.js', '.css', '.html', '.json', '.svg', '.xml', '.txt'].includes(ext)) return;
+  const COMPRESSIBLE_EXTS = new Set([
+    '.js',
+    '.css',
+    '.html',
+    '.json',
+    '.svg',
+    '.xml',
+    '.txt',
+    '.map',
+    '.wasm',
+  ]);
 
-  const file = fs.readFileSync(filePath);
+  if (!COMPRESSIBLE_EXTS.has(ext)) return;
+
+  const file = await fs.promises.readFile(filePath);
   const originalSize = file.length;
-  
-  // Skip files that are too small to benefit from compression
-  if (originalSize < 1024) return;
 
-  // gzip compression
-  const gz = zlib.gzipSync(file, { 
-    level: zlib.constants.Z_BEST_COMPRESSION,
-    windowBits: 15,
-    memLevel: 9
-  });
-  fs.writeFileSync(filePath + '.gz', gz);
+  // Enhanced size threshold based on file type
+  const MIN_SIZE = ext === '.js' || ext === '.css' ? 2048 : 1024; // 2KB for JS/CSS, 1KB for others
+  if (originalSize < MIN_SIZE) return;
 
-  // brotli compression (better compression ratio)
+  // Compression promises
+  const compressionTasks = [];
+
+  // gzip compression with optimized settings
+  compressionTasks.push(
+    new Promise((resolve, reject) => {
+      zlib.gzip(
+        file,
+        {
+          level: zlib.constants.Z_BEST_COMPRESSION,
+          windowBits: 15,
+          memLevel: 9,
+          strategy: zlib.constants.Z_RLE, // Better for text-based files
+        },
+        async (err, gz) => {
+          if (err) reject(err);
+          else {
+            await fs.promises.writeFile(filePath + '.gz', gz);
+            resolve({
+              type: 'gzip',
+              size: gz.length,
+              ratio: (((originalSize - gz.length) / originalSize) * 100).toFixed(1),
+            });
+          }
+        }
+      );
+    })
+  );
+
+  // brotli compression with optimized settings
   if (typeof zlib.brotliCompressSync === 'function') {
-    const br = zlib.brotliCompressSync(file, {
-      params: {
-        [zlib.constants.BROTLI_PARAM_QUALITY]: 11,
-        [zlib.constants.BROTLI_PARAM_SIZE_HINT]: originalSize,
-      },
-    });
-    fs.writeFileSync(filePath + '.br', br);
-    
-    // Log compression stats for large files
-    if (originalSize > 100000) {
-      const gzRatio = ((originalSize - gz.length) / originalSize * 100).toFixed(1);
-      const brRatio = ((originalSize - br.length) / originalSize * 100).toFixed(1);
-      console.log(`${path.basename(filePath)}: ${originalSize}b → gz: ${gz.length}b (${gzRatio}%), br: ${br.length}b (${brRatio}%)`);
+    compressionTasks.push(
+      new Promise((resolve, reject) => {
+        zlib.brotliCompress(
+          file,
+          {
+            params: {
+              [zlib.constants.BROTLI_PARAM_QUALITY]: 11,
+              [zlib.constants.BROTLI_PARAM_MODE]: zlib.constants.BROTLI_MODE_TEXT,
+              [zlib.constants.BROTLI_PARAM_SIZE_HINT]: originalSize,
+              [zlib.constants.BROTLI_PARAM_LGWIN]: 24, // Larger window size for better compression
+            },
+          },
+          async (err, br) => {
+            if (err) reject(err);
+            else {
+              await fs.promises.writeFile(filePath + '.br', br);
+              resolve({
+                type: 'brotli',
+                size: br.length,
+                ratio: (((originalSize - br.length) / originalSize) * 100).toFixed(1),
+              });
+            }
+          }
+        );
+      })
+    );
+  }
+
+  // Wait for all compression tasks to complete
+  try {
+    const results = await Promise.all(compressionTasks);
+
+    // Log compression stats for larger files or significant compression gains
+    const bestCompression = results.reduce((best, current) =>
+      parseFloat(current.ratio) > parseFloat(best.ratio) ? current : best
+    );
+
+    if (originalSize > 50000 || parseFloat(bestCompression.ratio) > 70) {
+      console.log(
+        `${path.basename(filePath)} (${(originalSize / 1024).toFixed(1)}KB) → ` +
+          results.map((r) => `${r.type}: ${(r.size / 1024).toFixed(1)}KB (${r.ratio}%)`).join(', ')
+      );
     }
+  } catch (error) {
+    console.error(`Error compressing ${filePath}:`, error.message);
   }
 }
 
-function walk(dir) {
-  for (const name of fs.readdirSync(dir)) {
+async function walk(dir) {
+  const files = await fs.promises.readdir(dir);
+  const tasks = [];
+
+  for (const name of files) {
     const full = path.join(dir, name);
-    const stat = fs.statSync(full);
-    if (stat.isDirectory()) walk(full);
-    else compressFile(full);
+    const stat = await fs.promises.stat(full);
+
+    if (stat.isDirectory()) {
+      tasks.push(walk(full));
+    } else {
+      tasks.push(compressFile(full));
+    }
   }
+
+  await Promise.all(tasks);
 }
 
 // Resolve dist/public relative to the current working directory to support running from project root

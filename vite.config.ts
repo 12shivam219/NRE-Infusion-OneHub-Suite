@@ -20,11 +20,15 @@ export default defineConfig({
   envPrefix: ['VITE_'],
   
   optimizeDeps: {
-    include: [
-      '@ckeditor/ckeditor5-react', 
-      '@ckeditor/ckeditor5-build-classic',
-      '@harbour-enterprises/superdoc'
-    ],
+    include: ['react', 'react-dom', '@tanstack/react-query'],
+    exclude: ['@harbour-enterprises/superdoc', 'html2canvas', 'jspdf'],
+    esbuildOptions: {
+      target: 'es2020',
+      supported: { 'top-level-await': true },
+      treeShaking: true,
+      splitting: true,
+      format: 'esm'
+    }
   },
   plugins: [
     react({
@@ -59,25 +63,51 @@ export default defineConfig({
     },
   },
   root: path.resolve(__dirname, "client"),
-  build: {
+    build: {
     outDir: path.resolve(__dirname, "dist/public"),
     emptyOutDir: true,
-    target: 'es2020',
-    sourcemap: false,
+    target: ['es2022', 'chrome89', 'edge89', 'firefox89', 'safari15'],
+    sourcemap: process.env.NODE_ENV !== 'production',
     cssCodeSplit: true,
     reportCompressedSize: false,
-    assetsInlineLimit: 8192, // 8kb - increased for better performance
+    assetsInlineLimit: 4096, // 4kb - optimized for HTTP/2
+    chunkSizeWarningLimit: 3000, // Increased due to document handling libraries
     minify: 'terser',
     terserOptions: {
       compress: {
         drop_console: true,
         drop_debugger: true,
         pure_funcs: ['console.log', 'console.info', 'console.debug', 'console.warn'],
-        passes: 2,
+        passes: 3,
+        unsafe_arrows: true,
+        unsafe_methods: true,
+        reduce_vars: true,
+        reduce_funcs: true,
+        pure_getters: true,
+        keep_fargs: false,
+        unused: true,
+        dead_code: true,
+        toplevel: true,
+        hoist_funs: true,
+        hoist_vars: false,
+        if_return: true,
+        inline: 3,
+        join_vars: true,
+        loops: true,
+        side_effects: true
       },
       mangle: {
         safari10: true,
+        properties: {
+          regex: /^_/
+        },
+        toplevel: true,
+        eval: true
       },
+      format: {
+        comments: false,
+        preserve_annotations: false
+      }
     },
     commonjsOptions: {
       transformMixedEsModules: true,
@@ -89,26 +119,82 @@ export default defineConfig({
         return false;
       },
       output: {
-        globals: {},
-        manualChunks: {
-          // React core
-          'vendor-react': ['react', 'react-dom'],
-          // UI components
-          'vendor-ui': ['@radix-ui/react-alert-dialog', '@radix-ui/react-dialog', '@radix-ui/react-dropdown-menu', '@radix-ui/react-select', '@radix-ui/react-tabs', '@radix-ui/react-toast'],
-          // Document processing
-          'vendor-docs': ['html2canvas', 'jspdf'],
-          // Query and state
-          'vendor-query': ['@tanstack/react-query'],
-          // Editor
-          'vendor-editor': ['@harbour-enterprises/superdoc'],
-          // Forms and validation
-          'vendor-forms': ['react-hook-form', '@hookform/resolvers', 'zod'],
-          // Motion and animations
-          'vendor-motion': ['framer-motion'],
-          // Icons
-          'vendor-icons': ['lucide-react'],
-          // Utils
-          'vendor-utils': ['date-fns', 'clsx', 'tailwind-merge', 'nanoid'],
+        globals: {} as Record<string, string>,
+        manualChunks: (id: string) => {
+          // Route-based code splitting
+          if (id.includes('pages/')) {
+            const pageName = id.split('pages/')[1].split('/')[0];
+            return `page-${pageName}`;
+          }
+
+          // Feature-based code splitting
+          if (id.includes('node_modules')) {
+            // Core libraries - split react-dom separately
+            if (id.includes('react-dom')) return 'core-react-dom';
+            if (id.includes('react')) return 'core-react';
+            if (id.includes('@tanstack/react-query')) return 'core-query';
+            
+            // Separate large UI libraries
+            if (id.includes('@radix-ui/')) return 'ui-radix';
+            if (id.includes('framer-motion')) return 'ui-motion';
+            if (id.includes('lucide-react')) return 'ui-icons';
+            if (id.includes('sonner')) return 'ui-sonner';
+            
+            // Form handling
+            if (id.includes('react-hook-form') || 
+                id.includes('@hookform/resolvers') || 
+                id.includes('zod')) {
+              return 'feature-forms';
+            }
+            
+            // Document handling - LAZY loaded chunks
+            if (id.includes('html2canvas')) return 'lib-html2canvas';
+            if (id.includes('jspdf')) return 'lib-jspdf';
+            if (id.includes('jszip')) return 'lib-jszip';
+            if (id.includes('file-saver')) return 'lib-file-saver';
+            
+            // SuperDoc - critical library, split aggressively
+            if (id.includes('@harbour-enterprises/superdoc')) {
+              if (id.includes('.css')) return 'lib-superdoc-styles';
+              if (id.includes('.wasm')) return 'lib-superdoc-wasm';
+              if (id.includes('worker')) return 'lib-superdoc-workers';
+              return 'lib-superdoc';
+            }
+            
+            // API/Database
+            if (id.includes('googleapis') || id.includes('@microsoft/microsoft-graph-client')) {
+              return 'lib-api';
+            }
+            
+            // Image processing - lazy loaded
+            if (id.includes('jimp') || id.includes('html2canvas')) {
+              return 'lib-image';
+            }
+            
+            // Utilities - keep minimal
+            if (id.includes('date-fns')) return 'util-date';
+            if (id.includes('lodash')) return 'util-lodash';
+            if (id.includes('uuid') || id.includes('nanoid')) return 'util-id';
+
+            // Group remaining dependencies
+            return 'vendor';
+          }
+
+          // Component-based code splitting
+          if (id.includes('components/')) {
+            if (id.includes('components/ui/')) return 'comp-ui';
+            if (id.includes('components/SuperDocEditor/')) return 'comp-superdoc-editor';
+            if (id.includes('components/email/')) return 'comp-email';
+            if (id.includes('components/marketing/')) {
+              if (id.includes('requirements-section')) return 'comp-marketing-requirements';
+              if (id.includes('consultants-section') || id.includes('interviews-section')) {
+                return 'comp-marketing-sections';
+              }
+              return 'comp-marketing-other';
+            }
+            if (id.includes('components/admin/')) return 'comp-admin';
+            return 'comp-shared';
+          }
         },
         chunkFileNames: 'js/[name]-[hash].js',
         entryFileNames: 'js/[name]-[hash].js',
@@ -126,7 +212,29 @@ export default defineConfig({
         },
       },
     },
-    chunkSizeWarningLimit: 1000,
+    modulePreload: {
+      polyfill: false, // Disable module preload polyfill to reduce bundle size
+      resolveDependencies: (filename: string, deps: string[]) => {
+        // Prioritize loading of critical dependencies
+        if (filename.includes('superdoc')) {
+          return deps.sort((a, b) => {
+            if (a.includes('style.css')) return -1;
+            if (b.includes('style.css')) return 1;
+            if (a.includes('worker')) return 1;
+            if (b.includes('worker')) return -1;
+            return 0;
+          });
+        }
+        return deps;
+      }
+    },
+    manifest: true,
+    ssrManifest: false,
+    write: true,
+    dynamicImportVarsOptions: {
+      warnOnError: true,
+      exclude: [],
+    },
   },
   worker: {
     format: 'es',

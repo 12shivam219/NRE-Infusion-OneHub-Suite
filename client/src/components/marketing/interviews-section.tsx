@@ -1,4 +1,4 @@
-import { useState, useMemo } from 'react';
+import { useState, useMemo, lazy, Suspense } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { apiRequest, refreshCSRFToken } from '@/lib/queryClient';
 
@@ -72,7 +72,9 @@ import {
 } from 'lucide-react';
 import { toast } from 'sonner';
 import InterviewForm from './interview-form';
-import { AdminDeleteButton } from './admin-delete-button';
+const AdminDeleteButton = lazy(() =>
+  import('./admin-delete-button').then((mod) => ({ default: mod.AdminDeleteButton }))
+);
 import {
   Dialog,
   DialogContent,
@@ -91,10 +93,10 @@ export default function InterviewsSection() {
   const [showEditForm, setShowEditForm] = useState(false);
   const [viewInterview, setViewInterview] = useState<Interview | null>(null);
   const [deleteConfirm, setDeleteConfirm] = useState<string | null>(null);
-  
+
   // Debounce search query
   const debouncedSearch = useDebounce(searchQuery, 300);
-  
+
   // Pagination state
   const pagination = usePagination(0, {
     initialPageSize: 25,
@@ -122,11 +124,11 @@ export default function InterviewsSection() {
         page: String(pagination.page),
         limit: String(pagination.pageSize),
       });
-      
+
       if (activeTab && activeTab !== 'All') {
         params.append('status', activeTab);
       }
-      
+
       const response = await apiRequest('GET', `/api/marketing/interviews?${params}`);
       if (!response.ok) {
         throw new Error('Failed to fetch interviews');
@@ -136,7 +138,7 @@ export default function InterviewsSection() {
     retry: 1,
     placeholderData: (previousData) => previousData,
   });
-  
+
   // Handle both paginated and non-paginated responses
   const interviews = Array.isArray(interviewsResponse)
     ? interviewsResponse
@@ -155,8 +157,14 @@ export default function InterviewsSection() {
     },
     onSuccess: async () => {
       // Invalidate only the current page's interviews to avoid unnecessary refetches
-      queryClient.invalidateQueries({ 
-        queryKey: ['/api/marketing/interviews', pagination.page, pagination.pageSize, activeTab, debouncedSearch]
+      queryClient.invalidateQueries({
+        queryKey: [
+          '/api/marketing/interviews',
+          pagination.page,
+          pagination.pageSize,
+          activeTab,
+          debouncedSearch,
+        ],
       });
       toast.success('Interview scheduled successfully!');
       handleFormClose();
@@ -180,8 +188,14 @@ export default function InterviewsSection() {
     },
     onSuccess: async () => {
       // Invalidate only the current page's interviews to avoid unnecessary refetches
-      queryClient.invalidateQueries({ 
-        queryKey: ['/api/marketing/interviews', pagination.page, pagination.pageSize, activeTab, debouncedSearch]
+      queryClient.invalidateQueries({
+        queryKey: [
+          '/api/marketing/interviews',
+          pagination.page,
+          pagination.pageSize,
+          activeTab,
+          debouncedSearch,
+        ],
       });
       toast.success('Interview updated successfully!');
       handleFormClose();
@@ -205,8 +219,14 @@ export default function InterviewsSection() {
     },
     onSuccess: () => {
       // Invalidate only the current page's interviews to avoid unnecessary refetches
-      queryClient.invalidateQueries({ 
-        queryKey: ['/api/marketing/interviews', pagination.page, pagination.pageSize, activeTab, debouncedSearch]
+      queryClient.invalidateQueries({
+        queryKey: [
+          '/api/marketing/interviews',
+          pagination.page,
+          pagination.pageSize,
+          activeTab,
+          debouncedSearch,
+        ],
       });
       toast.success('Interview deleted successfully!');
       setDeleteConfirm(null);
@@ -329,7 +349,7 @@ export default function InterviewsSection() {
           Schedule Interview
         </Button>
       </div>
-      
+
       {/* Search Bar */}
       <div className="relative max-w-md">
         <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-slate-400" />
@@ -365,7 +385,8 @@ export default function InterviewsSection() {
                       <div className="flex-1 min-w-0">
                         <div className="flex items-center gap-3 mb-3">
                           <h3 className="font-semibold text-base text-slate-900 truncate">
-                            {interview.displayId ? `${interview.displayId} - ` : ''}{interview.jobTitle || 'Untitled Interview'}
+                            {interview.displayId ? `${interview.displayId} - ` : ''}
+                            {interview.jobTitle || 'Untitled Interview'}
                           </h3>
                           <Badge className={`${getStatusColor(interview.status)} shrink-0`}>
                             {interview.status}
@@ -424,22 +445,30 @@ export default function InterviewsSection() {
                         >
                           <EditIcon size={16} />
                         </Button>
-                        <AdminDeleteButton
-                          onDelete={async () => handleDeleteInterview(interview.id)}
-                          className="h-8 w-8 p-0 text-red-600 hover:text-red-700 hover:bg-red-50"
+                        <Suspense
+                          fallback={
+                            <Button variant="ghost" size="sm" className="h-8 w-8 p-0" disabled>
+                              <Loader2 size={16} className="animate-spin" />
+                            </Button>
+                          }
                         >
-                          {deleteMutation.isPending && deleteConfirm === interview.id ? (
-                            <Loader2 size={16} className="animate-spin" />
-                          ) : (
-                            <Trash2 size={16} />
-                          )}
-                        </AdminDeleteButton>
+                          <AdminDeleteButton
+                            onDelete={async () => handleDeleteInterview(interview.id)}
+                            className="h-8 w-8 p-0 text-red-600 hover:text-red-700 hover:bg-red-50"
+                          >
+                            {deleteMutation.isPending && deleteConfirm === interview.id ? (
+                              <Loader2 size={16} className="animate-spin" />
+                            ) : (
+                              <Trash2 size={16} />
+                            )}
+                          </AdminDeleteButton>
+                        </Suspense>
                       </div>
                     </div>
                   </CardContent>
                 </Card>
               ))}
-            
+
             {/* Pagination */}
             {totalItems > pagination.pageSize && (
               <Pagination

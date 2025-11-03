@@ -13,6 +13,7 @@ import googleDriveRoutes from "./routes/googleDriveRoutes";
 import marketingRoutes from "./routes/marketingRoutes";
 import emailEnhancementsRoutes from "./routes/emailEnhancementsRoutes";
 import emailOAuthRoutes from "./routes/emailOAuthRoutes";
+import { metricsRouter } from "./routes/metricsRoutes";
 import { eq, and } from "drizzle-orm";
 import { ActivityTracker } from "./utils/activityTracker";
 import multer from "multer";
@@ -281,6 +282,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
   
   // Register activity tracking routes
   app.use('/api/user/activity', (await import('./routes/activityRoutes')).default);
+
+  // Register Google Drive routes
+  app.use('/api/google-drive', (await import('./routes/googleDriveRoutes')).default);
 
   // Simple in-memory rate limiting per email+IP for login attempts
   type AttemptRecord = { count: number; first: number };
@@ -1965,6 +1969,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
 
   // Note: User stats route moved to avoid duplication (see line 181)
+
+  // Register metrics collection routes
+  app.use('/api/metrics', metricsRouter);
 
   const httpServer = createServer(app);
   return httpServer;

@@ -1,24 +1,16 @@
-import React, { useState } from 'react';
+import React, { useState, lazy, Suspense } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { apiRequest } from '@/lib/queryClient';
 import { Button } from '@/components/ui/button';
 import { Textarea } from '@/components/ui/textarea';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
-import {
-  MessageSquare,
-  Plus,
-  Edit,
-  Trash2,
-  Save,
-  X,
-  Loader2,
-  Clock,
-  User,
-} from 'lucide-react';
+import { MessageSquare, Plus, Edit, Trash2, Save, X, Loader2, Clock, User } from 'lucide-react';
 import { toast } from 'sonner';
 import { useAuth } from '@/hooks/useAuth';
-import { AdminDeleteButton } from './admin-delete-button';
+const AdminDeleteButton = lazy(() =>
+  import('./admin-delete-button').then((mod) => ({ default: mod.AdminDeleteButton }))
+);
 
 interface NextStepComment {
   id: string;
@@ -56,7 +48,10 @@ export default function NextStepComments({ requirementId, className = '' }: Next
   } = useQuery({
     queryKey: [`/api/marketing/requirements/${requirementId}/next-step-comments`],
     queryFn: async () => {
-      const response = await apiRequest('GET', `/api/marketing/requirements/${requirementId}/next-step-comments`);
+      const response = await apiRequest(
+        'GET',
+        `/api/marketing/requirements/${requirementId}/next-step-comments`
+      );
       if (!response.ok) {
         throw new Error('Failed to fetch next step comments');
       }
@@ -68,9 +63,13 @@ export default function NextStepComments({ requirementId, className = '' }: Next
   // Add comment mutation
   const addCommentMutation = useMutation({
     mutationFn: async (comment: string) => {
-      const response = await apiRequest('POST', `/api/marketing/requirements/${requirementId}/next-step-comments`, {
-        comment,
-      });
+      const response = await apiRequest(
+        'POST',
+        `/api/marketing/requirements/${requirementId}/next-step-comments`,
+        {
+          comment,
+        }
+      );
       if (!response.ok) {
         const error = await response.json();
         throw new Error(error.message || 'Failed to add comment');
@@ -78,7 +77,9 @@ export default function NextStepComments({ requirementId, className = '' }: Next
       return response.json();
     },
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: [`/api/marketing/requirements/${requirementId}/next-step-comments`] });
+      queryClient.invalidateQueries({
+        queryKey: [`/api/marketing/requirements/${requirementId}/next-step-comments`],
+      });
       setNewComment('');
       setShowAddForm(false);
       toast.success('Comment added successfully!');
@@ -101,7 +102,9 @@ export default function NextStepComments({ requirementId, className = '' }: Next
       return response.json();
     },
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: [`/api/marketing/requirements/${requirementId}/next-step-comments`] });
+      queryClient.invalidateQueries({
+        queryKey: [`/api/marketing/requirements/${requirementId}/next-step-comments`],
+      });
       setEditingId(null);
       setEditingText('');
       toast.success('Comment updated successfully!');
@@ -122,7 +125,9 @@ export default function NextStepComments({ requirementId, className = '' }: Next
       return response.json();
     },
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: [`/api/marketing/requirements/${requirementId}/next-step-comments`] });
+      queryClient.invalidateQueries({
+        queryKey: [`/api/marketing/requirements/${requirementId}/next-step-comments`],
+      });
       toast.success('Comment deleted successfully!');
     },
     onError: (error: Error) => {
@@ -215,12 +220,12 @@ export default function NextStepComments({ requirementId, className = '' }: Next
         </CardHeader>
         <CardContent>
           <div className="text-center py-8">
-            <p className="text-red-600 mb-4">
-              {error?.message || 'Failed to load comments'}
-            </p>
+            <p className="text-red-600 mb-4">{error?.message || 'Failed to load comments'}</p>
             <Button
               onClick={() =>
-                queryClient.invalidateQueries({ queryKey: [`/api/marketing/requirements/${requirementId}/next-step-comments`] })
+                queryClient.invalidateQueries({
+                  queryKey: [`/api/marketing/requirements/${requirementId}/next-step-comments`],
+                })
               }
               variant="outline"
               size="sm"
@@ -307,7 +312,9 @@ export default function NextStepComments({ requirementId, className = '' }: Next
             <div className="text-center py-8">
               <MessageSquare className="h-12 w-12 text-slate-400 mx-auto mb-3" />
               <p className="text-slate-600 mb-2">No next step comments yet</p>
-              <p className="text-sm text-slate-500">Add the first comment to start tracking next steps</p>
+              <p className="text-sm text-slate-500">
+                Add the first comment to start tracking next steps
+              </p>
             </div>
           ) : (
             comments.map((comment: NextStepComment) => (
@@ -331,7 +338,7 @@ export default function NextStepComments({ requirementId, className = '' }: Next
                         </div>
                       </div>
                     </div>
-                    
+
                     {isOwner(comment) && (
                       <div className="flex items-center space-x-1">
                         <Button
@@ -342,18 +349,26 @@ export default function NextStepComments({ requirementId, className = '' }: Next
                         >
                           <Edit size={14} />
                         </Button>
-                        <AdminDeleteButton
-                          onDelete={async () => {
-                            await deleteCommentMutation.mutateAsync(comment.id);
-                          }}
-                          className="h-7 w-7 p-0 text-red-600 hover:text-red-700 hover:bg-red-50"
+                        <Suspense
+                          fallback={
+                            <Button variant="ghost" size="sm" className="h-7 w-7 p-0" disabled>
+                              <Loader2 size={14} className="animate-spin" />
+                            </Button>
+                          }
                         >
-                          {deleteCommentMutation.isPending ? (
-                            <Loader2 size={14} className="animate-spin" />
-                          ) : (
-                            <Trash2 size={14} />
-                          )}
-                        </AdminDeleteButton>
+                          <AdminDeleteButton
+                            onDelete={async () => {
+                              await deleteCommentMutation.mutateAsync(comment.id);
+                            }}
+                            className="h-7 w-7 p-0 text-red-600 hover:text-red-700 hover:bg-red-50"
+                          >
+                            {deleteCommentMutation.isPending ? (
+                              <Loader2 size={14} className="animate-spin" />
+                            ) : (
+                              <Trash2 size={14} />
+                            )}
+                          </AdminDeleteButton>
+                        </Suspense>
                       </div>
                     )}
                   </div>
@@ -383,11 +398,7 @@ export default function NextStepComments({ requirementId, className = '' }: Next
                             </>
                           )}
                         </Button>
-                        <Button
-                          onClick={handleCancelEdit}
-                          variant="outline"
-                          size="sm"
-                        >
+                        <Button onClick={handleCancelEdit} variant="outline" size="sm">
                           <X size={16} className="mr-1" />
                           Cancel
                         </Button>

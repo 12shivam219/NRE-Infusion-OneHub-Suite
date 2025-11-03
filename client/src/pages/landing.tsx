@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, lazy, Suspense } from 'react';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent } from '@/components/ui/card';
 import { FileText, CreditCard as Edit, Download, Users, Star, ArrowRight } from 'lucide-react';
@@ -10,6 +10,12 @@ import { useToast } from '@/hooks/use-toast';
 import { useAuth } from '@/hooks/useAuth';
 import { useLocation } from 'wouter';
 import { PageLoader } from '@/components/ui/page-loader';
+
+// Lazy-load non-critical sections (features, process, CTA)
+const FeaturesSection = lazy(() => import('./landing-sections/features'));
+const ProcessSection = lazy(() => import('./landing-sections/process'));
+const CTASection = lazy(() => import('./landing-sections/cta'));
+const HeroPlaceholder = () => <div style={{ minHeight: '200px' }} />;
 
 export default function Landing() {
   const [showCookieNotice, setShowCookieNotice] = useState(false);
@@ -192,120 +198,20 @@ export default function Landing() {
         </div>
       </section>
 
-      {/* Features Section */}
-      <section className="py-20 px-4 sm:px-6 lg:px-8 bg-card">
-        <div className="max-w-6xl mx-auto">
-          <h3 className="text-4xl font-bold text-center text-foreground mb-16 tracking-tight">
-            Everything You Need to Stand Out
-          </h3>
+      {/* Features Section - Lazy loaded */}
+      <Suspense fallback={<div className="py-20 bg-card" />}>
+        <FeaturesSection />
+      </Suspense>
 
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-8">
-            <Card className="border-border card-interactive shadow-md">
-              <CardContent className="p-8">
-                <div className="h-14 w-14 bg-gradient-to-br from-primary/20 to-primary/10 rounded-xl flex items-center justify-center mb-6">
-                  <FileText className="text-primary" size={26} />
-                </div>
-                <h4 className="text-xl font-bold text-foreground mb-3">DOCX Upload & Editing</h4>
-                <p className="text-muted-foreground leading-relaxed">
-                  Upload your existing resume and edit it with our powerful rich-text editor. Full
-                  Microsoft Word compatibility.
-                </p>
-              </CardContent>
-            </Card>
+      {/* Process Section - Lazy loaded */}
+      <Suspense fallback={<div className="py-16" />}>
+        <ProcessSection />
+      </Suspense>
 
-            <Card className="border-border card-interactive shadow-md">
-              <CardContent className="p-8">
-                <div className="h-14 w-14 bg-gradient-to-br from-accent/20 to-accent/10 rounded-xl flex items-center justify-center mb-6">
-                  <Edit className="text-accent" size={26} />
-                </div>
-                <h4 className="text-xl font-bold text-foreground mb-3">
-                  Smart Tech Stack Processing
-                </h4>
-                <p className="text-muted-foreground leading-relaxed">
-                  Organize your technical skills and bullet points into strategic groups for
-                  targeted job applications.
-                </p>
-              </CardContent>
-            </Card>
-
-            <Card className="border-border card-interactive shadow-md">
-              <CardContent className="p-8">
-                <div className="h-14 w-14 bg-gradient-to-br from-orange-100 to-orange-50 rounded-xl flex items-center justify-center mb-6">
-                  <Download className="text-orange-600" size={26} />
-                </div>
-                <h4 className="text-xl font-bold text-foreground mb-3">Export & Cloud Storage</h4>
-                <p className="text-muted-foreground leading-relaxed">
-                  Download as DOCX/PDF or save directly to Google Drive. Access your resumes
-                  anywhere.
-                </p>
-              </CardContent>
-            </Card>
-          </div>
-        </div>
-      </section>
-
-      {/* Process Section */}
-      <section className="py-16 px-4 sm:px-6 lg:px-8">
-        <div className="max-w-6xl mx-auto">
-          <h3 className="text-3xl font-bold text-center text-foreground mb-12">How It Works</h3>
-
-          <div className="grid grid-cols-1 md:grid-cols-4 gap-8">
-            <div className="text-center">
-              <div className="h-16 w-16 bg-primary rounded-full flex items-center justify-center mx-auto mb-4">
-                <span className="text-2xl font-bold text-primary-foreground">1</span>
-              </div>
-              <h4 className="text-lg font-semibold text-foreground mb-2">Upload Resume</h4>
-              <p className="text-muted-foreground">Upload your DOCX resume files</p>
-            </div>
-
-            <div className="text-center">
-              <div className="h-16 w-16 bg-primary rounded-full flex items-center justify-center mx-auto mb-4">
-                <span className="text-2xl font-bold text-primary-foreground">2</span>
-              </div>
-              <h4 className="text-lg font-semibold text-foreground mb-2">Add Tech Stacks</h4>
-              <p className="text-muted-foreground">Input your technical skills and bullet points</p>
-            </div>
-
-            <div className="text-center">
-              <div className="h-16 w-16 bg-primary rounded-full flex items-center justify-center mx-auto mb-4">
-                <span className="text-2xl font-bold text-primary-foreground">3</span>
-              </div>
-              <h4 className="text-lg font-semibold text-foreground mb-2">Generate Groups</h4>
-              <p className="text-muted-foreground">AI organizes points into strategic groups</p>
-            </div>
-
-            <div className="text-center">
-              <div className="h-16 w-16 bg-primary rounded-full flex items-center justify-center mx-auto mb-4">
-                <span className="text-2xl font-bold text-primary-foreground">4</span>
-              </div>
-              <h4 className="text-lg font-semibold text-foreground mb-2">Customize & Export</h4>
-              <p className="text-muted-foreground">Edit and download your tailored resume</p>
-            </div>
-          </div>
-        </div>
-      </section>
-
-      {/* CTA Section */}
-      <section className="py-20 px-4 sm:px-6 lg:px-8 bg-gradient-to-r from-primary to-accent">
-        <div className="max-w-4xl mx-auto text-center">
-          <h3 className="text-4xl font-bold text-white mb-6 tracking-tight">
-            Ready to Create Your Perfect Resume?
-          </h3>
-          <p className="text-xl text-white/90 mb-10">
-            Join thousands of professionals who've landed their dream jobs with our platform.
-          </p>
-          <Button
-            size="lg"
-            variant="secondary"
-            onClick={() => (window.location.href = '/login')}
-            className="bg-white text-primary hover:bg-white/95 smooth-hover shadow-xl text-lg px-8 py-6 h-auto font-semibold"
-            data-testid="button-start-now"
-          >
-            Start Customizing Now
-            <ArrowRight className="ml-2" size={22} />
-          </Button>
-        </div>
-      </section>
+      {/* CTA Section - Lazy loaded */}
+      <Suspense fallback={<div className="py-20 bg-gradient-to-r from-primary to-accent" />}>
+        <CTASection />
+      </Suspense>
 
       {/* Footer */}
       <footer className="bg-card border-t border-border py-8 px-4 sm:px-6 lg:px-8">

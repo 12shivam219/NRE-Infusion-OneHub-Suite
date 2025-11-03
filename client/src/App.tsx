@@ -11,6 +11,7 @@ import { PrivateRoute } from '@/components/auth/private-route';
 import { AdminRoute, MarketingRoute } from '@/components/auth/role-based-route';
 import { resetAllAuthState } from '@/lib/resetAuthState';
 import { useNavigationGuard } from '@/lib/navigation';
+import PerformanceMonitor from '@/components/performance/PerformanceMonitor';
 
 // Lazy load all pages for optimal bundle splitting
 const NotFound = lazy(() => import('@/pages/not-found'));
@@ -158,6 +159,7 @@ const App = memo(() => {
   return (
     <QueryClientProvider client={queryClient}>
       <ErrorBoundaryWithReport>
+        <PerformanceMonitor />
         <TooltipProvider>
           <Toaster />
           <SonnerToaster

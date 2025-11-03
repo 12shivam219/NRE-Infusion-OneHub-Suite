@@ -3,7 +3,7 @@ import { Card, CardContent, CardHeader, CardTitle } from '../ui/card';
 import { Badge } from '../ui/badge';
 import { toast } from 'sonner';
 import { AlertCircle } from 'lucide-react';
-import SuperDocEditor from './SuperDocEditor';
+import { SuperDocEditorLazy } from './SuperDocEditorLazy';
 import type { Resume } from '@shared/schema';
 
 interface SuperDocResumeEditorProps {
@@ -82,7 +82,7 @@ export function SuperDocResumeEditor({
       </CardHeader>
 
       <CardContent className="flex-1 p-0" style={{ height: '100%', width: '100%', maxWidth: '100%' }}>
-        <SuperDocEditor
+        <SuperDocEditorLazy
           fileUrl={fileUrl}
           fileName={resume.fileName}
           resumeId={resume.id}

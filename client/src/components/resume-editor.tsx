@@ -17,7 +17,7 @@ import {
   FileText,
 } from 'lucide-react';
 import { toast } from 'sonner';
-import { SuperDocEditor } from './SuperDocEditor/SuperDocEditor';
+import { SuperDocEditorLazy } from './SuperDocEditor/SuperDocEditorLazy';
 import type { Resume, PointGroup } from '@shared/schema';
 
 interface ResumeEditorProps {
@@ -137,7 +137,7 @@ export default function ResumeEditor({
 
           <TabsContent value="editor" className="flex-1 p-0">
             <div className="h-full">
-              <SuperDocEditor
+              <SuperDocEditorLazy
                 fileUrl={fileUrl}
                 fileName={resume.fileName || 'document.docx'}
                 resumeId={resume.id}

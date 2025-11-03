@@ -1,4 +1,4 @@
-import { useState, useMemo, memo, useCallback } from 'react';
+import { useState, useMemo, memo, useCallback, lazy, Suspense } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { apiRequest, refreshCSRFToken } from '@/lib/queryClient';
 import { Button } from '@/components/ui/button';
@@ -9,25 +9,27 @@ import { Avatar, AvatarFallback } from '@/components/ui/avatar';
 import { Pagination } from '@/components/ui/pagination';
 import { useDebounce } from '@/hooks/useDebounce';
 import { usePagination } from '@/hooks/usePagination';
-import { 
-  Users, 
-  Plus, 
-  Search, 
-  Edit, 
-  Eye, 
-  Trash2, 
-  Mail, 
+import {
+  Users,
+  Plus,
+  Search,
+  Edit,
+  Eye,
+  Trash2,
+  Mail,
   Phone,
   MapPin,
   Calendar,
   GraduationCap,
   Building,
   Loader2,
-  AlertCircle
+  AlertCircle,
 } from 'lucide-react';
 import { toast } from 'sonner';
 import AdvancedConsultantForm from './advanced-consultant-form';
-import { AdminDeleteButton } from './admin-delete-button';
+const AdminDeleteButton = lazy(() =>
+  import('./admin-delete-button').then((mod) => ({ default: mod.AdminDeleteButton }))
+);
 import {
   Dialog,
   DialogContent,
@@ -83,10 +85,10 @@ function ConsultantsSection() {
   const [showEditForm, setShowEditForm] = useState(false);
   const [viewConsultant, setViewConsultant] = useState<Consultant | null>(null);
   const [deleteConfirm, setDeleteConfirm] = useState<string | null>(null);
-  
+
   // Debounce search query
   const debouncedSearch = useDebounce(searchQuery, 300);
-  
+
   // Pagination state
   const pagination = usePagination(0, {
     initialPageSize: 25,
@@ -94,7 +96,12 @@ function ConsultantsSection() {
   });
 
   // Fetch consultants with pagination and filtering
-  const { data: consultantsResponse, isLoading, isError, error } = useQuery({
+  const {
+    data: consultantsResponse,
+    isLoading,
+    isError,
+    error,
+  } = useQuery({
     queryKey: [
       '/api/marketing/consultants',
       pagination.page,
@@ -107,15 +114,15 @@ function ConsultantsSection() {
         page: String(pagination.page),
         limit: String(pagination.pageSize),
       });
-      
+
       if (statusFilter && statusFilter !== 'All') {
         params.append('status', statusFilter);
       }
-      
+
       if (debouncedSearch) {
         params.append('search', debouncedSearch);
       }
-      
+
       try {
         const response = await apiRequest('GET', `/api/marketing/consultants?${params}`);
         if (!response.ok) {
@@ -152,10 +159,10 @@ function ConsultantsSection() {
     onMutate: async (newConsultant) => {
       // Cancel outgoing refetches
       await queryClient.cancelQueries({ queryKey: ['/api/marketing/consultants'] });
-      
+
       // Snapshot previous value
       const previousData = queryClient.getQueryData(['/api/marketing/consultants']);
-      
+
       // Optimistically update with placeholder
       queryClient.setQueryData(['/api/marketing/consultants'], (old: any) => {
         if (!old) return old;
@@ -168,10 +175,10 @@ function ConsultantsSection() {
         };
         return {
           data: [newData, ...(old.data || old)],
-          pagination: old.pagination
+          pagination: old.pagination,
         };
       });
-      
+
       return { previousData };
     },
     onError: (error: Error, newConsultant, context) => {
@@ -189,15 +196,27 @@ function ConsultantsSection() {
     },
     onSettled: () => {
       // Refetch specific page only to avoid loading all consultants
-      queryClient.invalidateQueries({ 
-        queryKey: ['/api/marketing/consultants', pagination.page, pagination.pageSize, statusFilter, debouncedSearch]
+      queryClient.invalidateQueries({
+        queryKey: [
+          '/api/marketing/consultants',
+          pagination.page,
+          pagination.pageSize,
+          statusFilter,
+          debouncedSearch,
+        ],
       });
     },
   });
 
   // Update consultant mutation with optimistic updates
   const updateMutation = useMutation({
-    mutationFn: async ({ id, data }: { id: string; data: { consultant: any; projects: any[] } }) => {
+    mutationFn: async ({
+      id,
+      data,
+    }: {
+      id: string;
+      data: { consultant: any; projects: any[] };
+    }) => {
       const response = await apiRequest('PATCH', `/api/marketing/consultants/${id}`, data);
       if (!response.ok) {
         const error = await response.json();
@@ -208,22 +227,22 @@ function ConsultantsSection() {
     onMutate: async ({ id, data }) => {
       await queryClient.cancelQueries({ queryKey: ['/api/marketing/consultants'] });
       const previousData = queryClient.getQueryData(['/api/marketing/consultants']);
-      
+
       // Optimistically update
       queryClient.setQueryData(['/api/marketing/consultants'], (old: any) => {
         if (!old) return old;
         const dataArray = old.data || old;
-        const updatedData = dataArray.map((consultant: Consultant) => 
-          consultant.id === id 
+        const updatedData = dataArray.map((consultant: Consultant) =>
+          consultant.id === id
             ? { ...consultant, ...data.consultant, projects: data.projects || consultant.projects }
             : consultant
         );
         return {
           data: updatedData,
-          pagination: old.pagination
+          pagination: old.pagination,
         };
       });
-      
+
       return { previousData };
     },
     onError: (error: Error, variables, context) => {
@@ -256,7 +275,7 @@ function ConsultantsSection() {
     onMutate: async (id) => {
       await queryClient.cancelQueries({ queryKey: ['/api/marketing/consultants'] });
       const previousData = queryClient.getQueryData(['/api/marketing/consultants']);
-      
+
       // Optimistically remove from list
       queryClient.setQueryData(['/api/marketing/consultants'], (old: any) => {
         if (!old) return old;
@@ -264,10 +283,10 @@ function ConsultantsSection() {
         const filteredData = dataArray.filter((consultant: Consultant) => consultant.id !== id);
         return {
           data: filteredData,
-          pagination: old.pagination
+          pagination: old.pagination,
         };
       });
-      
+
       return { previousData };
     },
     onError: (error: Error, id, context) => {
@@ -297,11 +316,11 @@ function ConsultantsSection() {
 
   const getStatusColor = (status: string) => {
     switch (status) {
-      case 'Active': 
+      case 'Active':
         return 'bg-green-100 text-green-800 border-green-200';
-      case 'Not Active': 
+      case 'Not Active':
         return 'bg-red-100 text-red-800 border-red-200';
-      default: 
+      default:
         return 'bg-gray-100 text-gray-800 border-gray-200';
     }
   };
@@ -348,7 +367,7 @@ function ConsultantsSection() {
 
   const handleFormSubmit = async (consultantData: any, projects: any[]) => {
     const data = { consultant: consultantData, projects };
-    
+
     if (showEditForm && selectedConsultant) {
       await updateMutation.mutateAsync({ id: selectedConsultant.id, data });
     } else {
@@ -374,8 +393,14 @@ function ConsultantsSection() {
           <AlertCircle className="h-10 w-10 text-red-600" />
         </div>
         <h3 className="text-xl font-semibold text-slate-800 mb-2">Failed to load consultants</h3>
-        <p className="text-slate-500 mb-6">{error?.message || 'An error occurred while fetching consultants'}</p>
-        <Button onClick={() => queryClient.invalidateQueries({ queryKey: ['/api/marketing/consultants'] })}>
+        <p className="text-slate-500 mb-6">
+          {error?.message || 'An error occurred while fetching consultants'}
+        </p>
+        <Button
+          onClick={() =>
+            queryClient.invalidateQueries({ queryKey: ['/api/marketing/consultants'] })
+          }
+        >
           Try Again
         </Button>
       </div>
@@ -407,14 +432,16 @@ function ConsultantsSection() {
             className="pl-10"
           />
         </div>
-        
+
         <select
           value={statusFilter}
           onChange={handleStatusChange}
           className="border border-slate-300 rounded-md px-3 py-2 text-sm bg-white hover:bg-slate-50 focus:ring-2 focus:ring-blue-500"
         >
           {statusOptions.map((status) => (
-            <option key={status} value={status}>{status}</option>
+            <option key={status} value={status}>
+              {status}
+            </option>
           ))}
         </select>
       </div>
@@ -434,7 +461,7 @@ function ConsultantsSection() {
             </div>
           </CardContent>
         </Card>
-        
+
         <Card className="border-slate-200">
           <CardContent className="p-4">
             <div className="flex items-center justify-between">
@@ -473,7 +500,10 @@ function ConsultantsSection() {
               <div>
                 <p className="text-sm text-slate-600">Total Projects</p>
                 <p className="text-2xl font-bold text-slate-900">
-                  {consultants.reduce((acc: number, c: Consultant) => acc + (c.projects?.length || 0), 0)}
+                  {consultants.reduce(
+                    (acc: number, c: Consultant) => acc + (c.projects?.length || 0),
+                    0
+                  )}
                 </p>
               </div>
               <div className="h-10 w-10 bg-purple-100 rounded-lg flex items-center justify-center">
@@ -494,7 +524,9 @@ function ConsultantsSection() {
               </div>
               <h3 className="text-lg font-semibold text-slate-900 mb-2">No consultants found</h3>
               <p className="text-slate-600 mb-4">
-                {searchQuery ? 'Try adjusting your search criteria' : 'Add your first consultant to get started'}
+                {searchQuery
+                  ? 'Try adjusting your search criteria'
+                  : 'Add your first consultant to get started'}
               </p>
               <Button onClick={handleAddConsultant} className="bg-blue-600 hover:bg-blue-700">
                 <Plus size={16} className="mr-2" />
@@ -504,20 +536,29 @@ function ConsultantsSection() {
           </Card>
         ) : (
           filteredConsultants.map((consultant: Consultant) => (
-            <Card key={consultant.id} className="border-slate-200 hover:shadow-md hover:border-slate-300 transition-all group">
+            <Card
+              key={consultant.id}
+              className="border-slate-200 hover:shadow-md hover:border-slate-300 transition-all group"
+            >
               <CardContent className="p-5">
                 <div className="flex items-start justify-between gap-4">
                   <div className="flex items-start gap-4 flex-1 min-w-0">
                     <Avatar className="h-12 w-12 shrink-0">
                       <AvatarFallback className="text-base font-semibold bg-blue-100 text-blue-700">
-                        {consultant.name?.split(' ').map((n: string) => n[0]).join('').slice(0, 2).toUpperCase() || 'CN'}
+                        {consultant.name
+                          ?.split(' ')
+                          .map((n: string) => n[0])
+                          .join('')
+                          .slice(0, 2)
+                          .toUpperCase() || 'CN'}
                       </AvatarFallback>
                     </Avatar>
-                    
+
                     <div className="flex-1 min-w-0">
                       <div className="flex items-center gap-2 mb-2 flex-wrap">
                         <h3 className="font-semibold text-base text-slate-900">
-                          {consultant.displayId ? `${consultant.displayId} - ` : ''}{consultant.name}
+                          {consultant.displayId ? `${consultant.displayId} - ` : ''}
+                          {consultant.name}
                         </h3>
                         <Badge className={`${getStatusColor(consultant.status)} shrink-0`}>
                           {consultant.status}
@@ -528,35 +569,37 @@ function ConsultantsSection() {
                           </Badge>
                         )}
                       </div>
-                      
+
                       <div className="grid grid-cols-2 md:grid-cols-3 gap-x-4 gap-y-2 text-sm mb-2">
                         <div className="flex items-center gap-2 min-w-0">
                           <Mail size={14} className="text-slate-400 shrink-0" />
                           <span className="text-slate-600 truncate">{consultant.email}</span>
                         </div>
-                        
+
                         {consultant.phone && (
                           <div className="flex items-center gap-2">
                             <Phone size={14} className="text-slate-400 shrink-0" />
                             <span className="text-slate-600">{consultant.phone}</span>
                           </div>
                         )}
-                        
+
                         {consultant.countryOfOrigin && (
                           <div className="flex items-center gap-2">
                             <MapPin size={14} className="text-slate-400 shrink-0" />
                             <span className="text-slate-600">{consultant.countryOfOrigin}</span>
                           </div>
                         )}
-                        
+
                         {consultant.projects && consultant.projects.length > 0 && (
                           <div className="flex items-center gap-2">
                             <Building size={14} className="text-slate-400 shrink-0" />
-                            <span className="text-slate-600">{consultant.projects.length} Projects</span>
+                            <span className="text-slate-600">
+                              {consultant.projects.length} Projects
+                            </span>
                           </div>
                         )}
                       </div>
-                      
+
                       {consultant.projects && consultant.projects.length > 0 && (
                         <div className="flex flex-wrap gap-1.5 mt-2">
                           {consultant.projects.slice(0, 3).map((project: ConsultantProject) => (
@@ -575,18 +618,18 @@ function ConsultantsSection() {
                   </div>
 
                   <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity shrink-0">
-                    <Button 
-                      variant="ghost" 
-                      size="sm" 
+                    <Button
+                      variant="ghost"
+                      size="sm"
                       onClick={() => handleViewConsultant(consultant)}
                       className="h-8 w-8 p-0"
                       title="View details"
                     >
                       <Eye size={16} />
                     </Button>
-                    <Button 
-                      variant="ghost" 
-                      size="sm" 
+                    <Button
+                      variant="ghost"
+                      size="sm"
                       onClick={() => handleEditConsultant(consultant)}
                       className="h-8 w-8 p-0"
                       title="Edit"
@@ -610,7 +653,7 @@ function ConsultantsSection() {
           ))
         )}
       </div>
-      
+
       {/* Pagination Controls */}
       {totalItems > pagination.pageSize && (
         <Pagination
@@ -626,7 +669,7 @@ function ConsultantsSection() {
           showPageInfo={true}
         />
       )}
-      
+
       {/* No results after search/filter */}
       {filteredConsultants.length === 0 && totalItems > 0 && (
         <Card className="border-slate-200">
@@ -670,11 +713,9 @@ function ConsultantsSection() {
                 <Users size={20} />
                 <span>{viewConsultant.name}</span>
               </DialogTitle>
-              <DialogDescription>
-                View consultant details
-              </DialogDescription>
+              <DialogDescription>View consultant details</DialogDescription>
             </DialogHeader>
-            
+
             <div className="space-y-6">
               {/* Basic Information */}
               <div>
@@ -682,7 +723,11 @@ function ConsultantsSection() {
                 <div className="grid grid-cols-2 gap-4">
                   <div>
                     <label className="text-sm font-semibold text-slate-700">Status</label>
-                    <p className="text-slate-600"><Badge className={getStatusColor(viewConsultant.status)}>{viewConsultant.status}</Badge></p>
+                    <p className="text-slate-600">
+                      <Badge className={getStatusColor(viewConsultant.status)}>
+                        {viewConsultant.status}
+                      </Badge>
+                    </p>
                   </div>
                   <div>
                     <label className="text-sm font-semibold text-slate-700">Email</label>
@@ -697,7 +742,9 @@ function ConsultantsSection() {
                     <p className="text-slate-600">{viewConsultant.visaStatus || 'N/A'}</p>
                   </div>
                   <div>
-                    <label className="text-sm font-semibold text-slate-700">Country of Origin</label>
+                    <label className="text-sm font-semibold text-slate-700">
+                      Country of Origin
+                    </label>
                     <p className="text-slate-600">{viewConsultant.countryOfOrigin || 'N/A'}</p>
                   </div>
                   <div>
@@ -732,7 +779,9 @@ function ConsultantsSection() {
                     )}
                     {viewConsultant.yearOfPassing && (
                       <div>
-                        <label className="text-sm font-semibold text-slate-700">Year of Passing</label>
+                        <label className="text-sm font-semibold text-slate-700">
+                          Year of Passing
+                        </label>
                         <p className="text-slate-600">{viewConsultant.yearOfPassing}</p>
                       </div>
                     )}
@@ -743,7 +792,9 @@ function ConsultantsSection() {
               {/* Projects */}
               {viewConsultant.projects && viewConsultant.projects.length > 0 && (
                 <div>
-                  <h4 className="text-md font-semibold mb-3">Project History ({viewConsultant.projects.length})</h4>
+                  <h4 className="text-md font-semibold mb-3">
+                    Project History ({viewConsultant.projects.length})
+                  </h4>
                   <div className="space-y-3">
                     {viewConsultant.projects.map((project) => (
                       <Card key={project.id}>
@@ -751,18 +802,32 @@ function ConsultantsSection() {
                           <div className="flex items-start justify-between mb-2">
                             <h5 className="font-semibold">{project.projectName}</h5>
                             {project.isCurrentlyWorking && (
-                              <Badge variant="outline" className="text-green-600 border-green-600">Current</Badge>
+                              <Badge variant="outline" className="text-green-600 border-green-600">
+                                Current
+                              </Badge>
                             )}
                           </div>
                           <div className="grid grid-cols-2 gap-2 text-sm text-slate-600">
-                            <div><span className="font-medium">Domain:</span> {project.projectDomain || 'N/A'}</div>
-                            <div><span className="font-medium">Location:</span> {project.projectCity}, {project.projectState}</div>
                             <div>
-                              <span className="font-medium">Duration:</span> {new Date(project.projectStartDate).toLocaleDateString()} - {project.projectEndDate ? new Date(project.projectEndDate).toLocaleDateString() : 'Present'}
+                              <span className="font-medium">Domain:</span>{' '}
+                              {project.projectDomain || 'N/A'}
+                            </div>
+                            <div>
+                              <span className="font-medium">Location:</span> {project.projectCity},{' '}
+                              {project.projectState}
+                            </div>
+                            <div>
+                              <span className="font-medium">Duration:</span>{' '}
+                              {new Date(project.projectStartDate).toLocaleDateString()} -{' '}
+                              {project.projectEndDate
+                                ? new Date(project.projectEndDate).toLocaleDateString()
+                                : 'Present'}
                             </div>
                           </div>
                           {project.projectDescription && (
-                            <p className="mt-2 text-sm text-slate-600">{project.projectDescription}</p>
+                            <p className="mt-2 text-sm text-slate-600">
+                              {project.projectDescription}
+                            </p>
                           )}
                         </CardContent>
                       </Card>
@@ -773,11 +838,15 @@ function ConsultantsSection() {
             </div>
 
             <DialogFooter>
-              <Button variant="outline" onClick={() => setViewConsultant(null)}>Close</Button>
-              <Button onClick={() => {
-                setViewConsultant(null);
-                handleEditConsultant(viewConsultant);
-              }}>
+              <Button variant="outline" onClick={() => setViewConsultant(null)}>
+                Close
+              </Button>
+              <Button
+                onClick={() => {
+                  setViewConsultant(null);
+                  handleEditConsultant(viewConsultant);
+                }}
+              >
                 <Edit size={16} className="mr-2" />
                 Edit
               </Button>
@@ -797,12 +866,16 @@ function ConsultantsSection() {
               </DialogDescription>
             </DialogHeader>
             <DialogFooter>
-              <Button variant="outline" onClick={() => setDeleteConfirm(null)} disabled={deleteMutation.isPending}>
+              <Button
+                variant="outline"
+                onClick={() => setDeleteConfirm(null)}
+                disabled={deleteMutation.isPending}
+              >
                 Cancel
               </Button>
-              <Button 
-                variant="destructive" 
-                onClick={confirmDelete} 
+              <Button
+                variant="destructive"
+                onClick={confirmDelete}
                 disabled={deleteMutation.isPending}
               >
                 {deleteMutation.isPending ? (
@@ -818,7 +891,6 @@ function ConsultantsSection() {
           </DialogContent>
         </Dialog>
       )}
-
     </div>
   );
 }

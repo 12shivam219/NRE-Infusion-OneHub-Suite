@@ -1,6 +1,6 @@
 import React from 'react';
 import { FileText, AlertCircle } from 'lucide-react';
-import { SuperDocEditor } from './SuperDocEditor/SuperDocEditor';
+import { SuperDocEditorLazy } from './SuperDocEditor/SuperDocEditorLazy';
 import type { Resume as SharedResume, PointGroup as SharedPointGroup } from '@shared/schema';
 
 interface AdvancedResumeEditorProps {
@@ -92,7 +92,7 @@ export default function AdvancedResumeEditor({
       </div>
       
       <div className="p-4">
-        <SuperDocEditor
+        <SuperDocEditorLazy
           fileUrl={fileUrl}
           fileName={resume.fileName || 'document.docx'}
           resumeId={resume.id}

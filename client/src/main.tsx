@@ -3,16 +3,24 @@ import App from './App';
 import './index.css';
 import { logStartupInfo } from './lib/debug';
 import { clearAllClientAuthData } from './lib/clearAuthData';
+import { initializeMessaging } from './lib/messaging';
+import { initializeVitalsMonitoring } from './lib/performance-monitoring';
 
-// Register service worker only in production to avoid dev issues
+// Enhanced service worker registration with better error handling
 async function registerServiceWorker() {
   if ('serviceWorker' in navigator) {
-    if (import.meta.env.PROD) {
-      try {
+    try {
+      // First, ensure any existing service workers are properly terminated
+      const existingRegistrations = await navigator.serviceWorker.getRegistrations();
+      await Promise.all(existingRegistrations.map((reg) => reg.unregister()));
+
+      if (import.meta.env.PROD) {
         const registration = await navigator.serviceWorker.register('/service-worker.js', {
           scope: '/',
+          updateViaCache: 'none', // Prevent browser cache issues
         });
 
+        // Handle service worker lifecycle
         if (registration.installing) {
           console.log('Service worker installing');
         } else if (registration.waiting) {
@@ -20,22 +28,33 @@ async function registerServiceWorker() {
         } else if (registration.active) {
           console.log('Service worker active');
         }
-      } catch (error) {
-        // Silently handle service worker registration errors in production
-        // to prevent them from affecting the user experience
-        console.warn('Service worker registration failed (non-critical):', error);
+
+        // Set up message handling (avoid port initialization issues)
+        navigator.serviceWorker.addEventListener('message', (event) => {
+          if (event.data?.type === 'SERVICE_WORKER_ERROR') {
+            console.warn('Service worker error:', event.data.error);
+          }
+        });
+        
+        // Skip MessageChannel port initialization to avoid "Receiving end does not exist" errors
+        // The service worker handles all messaging via standard postMessage instead
+
+        // Handle updates
+        registration.addEventListener('updatefound', () => {
+          const newWorker = registration.installing;
+          if (newWorker) {
+            newWorker.addEventListener('statechange', () => {
+              if (newWorker.state === 'installed' && navigator.serviceWorker.controller) {
+                console.log('New service worker available');
+              }
+            });
+          }
+        });
+      } else {
+        console.log('Service worker disabled in development mode');
       }
-    } else {
-      // In development, unregister any existing service workers
-      try {
-        const registrations = await navigator.serviceWorker.getRegistrations();
-        for (const registration of registrations) {
-          await registration.unregister();
-          console.log('Unregistered service worker for development');
-        }
-      } catch (error) {
-        console.warn('Failed to unregister service workers:', error);
-      }
+    } catch (error) {
+      console.warn('Service worker registration/unregistration error:', error);
     }
   }
 }
@@ -45,6 +64,11 @@ window.addEventListener('load', registerServiceWorker);
 
 // Log startup info for debugging
 logStartupInfo();
+
+// Initialize Core Web Vitals monitoring in production
+if (import.meta.env.PROD) {
+  initializeVitalsMonitoring();
+}
 
 createRoot(document.getElementById('root')!).render(<App />);
 
@@ -78,13 +102,27 @@ window.addEventListener('storage', (ev) => {
   }
 });
 
+// Intelligent prefetching of anticipated routes based on auth state (production only)
+if (import.meta.env.PROD && 'requestIdleCallback' in window) {
+  requestIdleCallback(() => {
+    const isAuth = !!localStorage.getItem('rcp_token');
+    // Prefetch editor page only for authenticated users who visit resumes
+    if (isAuth && window.location.pathname.includes('/dashboard')) {
+      // Preload editor page chunks
+      import('@/components/SuperDocEditor/SuperDocEditorLazy')
+        .catch(() => {});
+    }
+  }, { timeout: 5000 });
+}
+
 // Auto-logout after 24 hours from login (client-side enforcement)
 try {
   const LOGIN_TTL = 24 * 60 * 60 * 1000; // 24 hours
-  const loginTimeStr = localStorage.getItem('rcp_loginAt') || localStorage.getItem('lastActiveTime') || '0';
+  const loginTimeStr =
+    localStorage.getItem('rcp_loginAt') || localStorage.getItem('lastActiveTime') || '0';
   const loginAt = parseInt(loginTimeStr, 10) || 0;
   const now = Date.now();
-  
+
   if (loginAt > 0) {
     const elapsed = now - loginAt;
     if (elapsed >= LOGIN_TTL) {

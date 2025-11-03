@@ -6,10 +6,12 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Textarea } from '@/components/ui/textarea';
+import { Pencil } from 'lucide-react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { EnhancedField } from '@/components/ui/enhanced-field';
 import { BackupRecoveryDialog } from '@/components/ui/backup-recovery-dialog';
+import { EditableField } from '@/components/ui/editable-field';
 import { useFormPersistence } from '@/hooks/useFormPersistence';
 import { useKeyboardShortcuts, getFormNavigationShortcuts } from '@/hooks/useKeyboardShortcuts';
 import { useFocusTrap, useAriaAnnouncer } from '@/hooks/useAccessibility';
@@ -165,28 +167,32 @@ export default function AdvancedRequirementsForm({
     shouldUnregister: false, // Preserve field values when unmounting
     mode: 'onChange',
     resolver: zodResolver(
-      z.object({
-        jobTitle: z.any().optional(),
-        status: z.any().optional(),
-        consultantId: z.any().optional(),
-        appliedFor: z.any().optional(),
-        completeJobDescription: z.any().optional(),
-        // All other fields are optional and accept any type
-        rate: z.any().optional(),
-        primaryTechStack: z.any().optional(),
-        clientCompany: z.any().optional(),
-        impName: z.any().optional(),
-        clientWebsite: z.any().optional(),
-        impWebsite: z.any().optional(),
-        vendorCompany: z.any().optional(),
-        vendorWebsite: z.any().optional(),
-        vendorPersonName: z.any().optional(),
-        vendorPhone: z.any().optional(),
-        vendorEmail: z.any().optional(),
-        nextStep: z.any().optional(),
-        remote: z.any().optional(),
-        duration: z.any().optional(),
-      }).passthrough() // Allow extra fields
+      z
+        .object({
+          jobTitle: z.string().min(1, 'Job title is required'),
+          status: z.string().min(1, 'Status is required'),
+          consultantId: z.string().min(1, 'Consultant is required'),
+          appliedFor: z.string().min(1, 'Applied for is required'),
+          completeJobDescription: z
+            .string()
+            .min(50, 'Job description must be at least 50 characters'),
+          // All other fields are optional and accept any type
+          rate: z.any().optional(),
+          primaryTechStack: z.string().min(1, 'Primary tech stack is required'),
+          clientCompany: z.string().min(1, 'Client company is required'),
+          impName: z.any().optional(),
+          clientWebsite: z.any().optional(),
+          impWebsite: z.any().optional(),
+          vendorCompany: z.any().optional(),
+          vendorWebsite: z.any().optional(),
+          vendorPersonName: z.any().optional(),
+          vendorPhone: z.any().optional(),
+          vendorEmail: z.string().email('Invalid email address').optional().or(z.literal('')),
+          nextStep: z.any().optional(),
+          remote: z.any().optional(),
+          duration: z.any().optional(),
+        })
+        .passthrough() // Allow extra fields
     ),
     defaultValues: {
       status: RequirementStatus.NEW,
@@ -337,21 +343,14 @@ export default function AdvancedRequirementsForm({
       clearBackups();
       announce('Form submitted successfully', 'assertive');
       toast.success('Form submitted successfully');
-    } catch (error) {
-      console.error('Form submission error:', error);
-      toast.error('Failed to submit form');
-      announce('Error submitting form. Your progress has been saved.', 'assertive');
-      // Create emergency backup on error
-      createBackup(data);
-    }
-    try {
-      await onSubmit([data]);
       console.log('Form submission successful');
       // Don't reset here - let the parent component handle dialog closing
     } catch (error: any) {
-      // Error handling is done in the parent component
       console.error('Form submission error:', error);
       toast.error(`Submission failed: ${error.message}`);
+      announce('Error submitting form. Your progress has been saved.', 'assertive');
+      // Create emergency backup on error
+      createBackup(data);
     }
   };
 
@@ -725,58 +724,53 @@ Additional Information:
                         </div>
 
                         <div>
-                          <Label htmlFor="impName">IMP Name</Label>
                           <Controller
                             name="impName"
                             control={control}
                             render={({ field }) => (
-                              <Input
-                                {...field}
+                              <EditableField
+                                label="IMP Name"
                                 value={field.value || ''}
-                                placeholder="Implementation Partner Name"
+                                onSave={async (value) => {
+                                  field.onChange(value);
+                                }}
                               />
                             )}
                           />
                         </div>
 
                         <div>
-                          <Label htmlFor="clientWebsite">Client Website</Label>
-                          <FieldWrapper
-                            error={getFieldError('clientWebsite')}
-                            status={getFieldStatus('clientWebsite')}
-                          >
-                            <Controller
-                              name="clientWebsite"
-                              control={control}
-                              render={({ field }) => (
-                                <Input
-                                  {...field}
-                                  value={field.value || ''}
-                                  placeholder="https://client-company.com"
-                                />
-                              )}
-                            />
-                          </FieldWrapper>
+                          <Controller
+                            name="clientWebsite"
+                            control={control}
+                            render={({ field }) => (
+                              <EditableField
+                                label="Client Website"
+                                value={field.value || ''}
+                                onSave={async (value) => {
+                                  field.onChange(value);
+                                }}
+                                type="url"
+                              />
+                            )}
+                          />
                         </div>
 
                         <div>
-                          <Label htmlFor="impWebsite">IMP Website</Label>
-                          <FieldWrapper
-                            error={getFieldError('impWebsite')}
-                            status={getFieldStatus('impWebsite')}
-                          >
-                            <Controller
-                              name="impWebsite"
-                              control={control}
-                              render={({ field }) => (
-                                <Input
-                                  {...field}
-                                  value={field.value || ''}
-                                  placeholder="https://imp-company.com"
-                                />
-                              )}
-                            />
-                          </FieldWrapper>
+                          <Controller
+                            name="impWebsite"
+                            control={control}
+                            render={({ field }) => (
+                              <EditableField
+                                label="IMP Website"
+                                value={field.value || ''}
+                                onSave={async (value) => {
+                                  field.onChange(value);
+                                }}
+                                type="url"
+                              />
+                            )}
+                          />
                         </div>
                       </div>
                     </CardContent>
@@ -791,50 +785,49 @@ Additional Information:
                     <CardContent className="space-y-4">
                       <div className="grid grid-cols-2 gap-4">
                         <div>
-                          <Label htmlFor="vendorCompany">Vendor Company</Label>
                           <Controller
                             name="vendorCompany"
                             control={control}
                             render={({ field }) => (
-                              <Input
-                                {...field}
+                              <EditableField
+                                label="Vendor Company"
                                 value={field.value || ''}
-                                placeholder="Vendor Company Name"
+                                onSave={async (value) => {
+                                  field.onChange(value);
+                                }}
                               />
                             )}
                           />
                         </div>
 
                         <div>
-                          <Label htmlFor="vendorWebsite">Vendor Website</Label>
-                          <FieldWrapper
-                            error={getFieldError('vendorWebsite')}
-                            status={getFieldStatus('vendorWebsite')}
-                          >
-                            <Controller
-                              name="vendorWebsite"
-                              control={control}
-                              render={({ field }) => (
-                                <Input
-                                  {...field}
-                                  value={field.value || ''}
-                                  placeholder="https://vendor-company.com"
-                                />
-                              )}
-                            />
-                          </FieldWrapper>
+                          <Controller
+                            name="vendorWebsite"
+                            control={control}
+                            render={({ field }) => (
+                              <EditableField
+                                label="Vendor Website"
+                                value={field.value || ''}
+                                onSave={async (value) => {
+                                  field.onChange(value);
+                                }}
+                                type="url"
+                              />
+                            )}
+                          />
                         </div>
 
                         <div>
-                          <Label htmlFor="vendorPersonName">Vendor Contact Person</Label>
                           <Controller
                             name="vendorPersonName"
                             control={control}
                             render={({ field }) => (
-                              <Input
-                                {...field}
+                              <EditableField
+                                label="Vendor Contact Person"
                                 value={field.value || ''}
-                                placeholder="Contact Person Name"
+                                onSave={async (value) => {
+                                  field.onChange(value);
+                                }}
                               />
                             )}
                           />
@@ -845,45 +838,34 @@ Additional Information:
                             name="vendorPhone"
                             control={control}
                             render={({ field }) => (
-                              <EnhancedField
-                                {...field}
-                                id="vendorPhone"
+                              <EditableField
                                 label="Vendor Phone"
-                                placeholder="Any phone format accepted"
-                                error={getFieldError('vendorPhone')}
-                                tooltip="Enter the vendor's contact phone number in any format"
-                                // Removed phone mask to allow flexible input
-                                onChange={(e) => {
-                                  // Clean up the input but keep it flexible
-                                  const value = e.target.value
-                                    .replace(/[^\d\s+()-.,ext]/gi, '') // Allow digits, spaces, +()-., and 'ext'
-                                    .trim();
-                                  field.onChange(value);
+                                value={field.value || ''}
+                                onSave={async (value) => {
+                                  const cleanValue = value.replace(/[^\d\s+()-.,ext]/gi, '').trim();
+                                  field.onChange(cleanValue);
                                 }}
+                                type="tel"
                               />
                             )}
                           />
                         </div>
 
                         <div className="col-span-2">
-                          <Label htmlFor="vendorEmail">Vendor Email</Label>
-                          <FieldWrapper
-                            error={getFieldError('vendorEmail')}
-                            status={getFieldStatus('vendorEmail')}
-                          >
-                            <Controller
-                              name="vendorEmail"
-                              control={control}
-                              render={({ field }) => (
-                                <Input
-                                  {...field}
-                                  value={field.value || ''}
-                                  placeholder="contact@vendor-company.com"
-                                  type="email"
-                                />
-                              )}
-                            />
-                          </FieldWrapper>
+                          <Controller
+                            name="vendorEmail"
+                            control={control}
+                            render={({ field }) => (
+                              <EditableField
+                                label="Vendor Email"
+                                value={field.value || ''}
+                                onSave={async (value) => {
+                                  field.onChange(value);
+                                }}
+                                type="email"
+                              />
+                            )}
+                          />
                         </div>
                       </div>
                     </CardContent>

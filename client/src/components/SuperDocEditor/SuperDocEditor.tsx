@@ -1,16 +1,16 @@
 import React, { useEffect, useRef, useState, useCallback } from 'react';
 import { toast } from 'sonner';
 import { Button } from '../ui/button';
-import { 
-  Download, 
-  Save, 
-  AlertCircle, 
-  Loader2, 
-  Maximize2, 
-  Minimize2, 
-  ZoomIn, 
-  ZoomOut, 
-  Undo2, 
+import {
+  Download,
+  Save,
+  AlertCircle,
+  Loader2,
+  Maximize2,
+  Minimize2,
+  ZoomIn,
+  ZoomOut,
+  Undo2,
   Redo2,
   FileText,
   Check,
@@ -21,23 +21,52 @@ import {
   MessageSquare,
   GitBranch,
   RefreshCw,
-  History
+  History,
 } from 'lucide-react';
-import { 
-  Tooltip,
-  TooltipContent,
-  TooltipProvider,
-  TooltipTrigger,
-} from '../ui/tooltip';
+import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '../ui/tooltip';
 import { Badge } from '../ui/badge';
 import { Input } from '../ui/input';
 import { Progress } from '../ui/progress';
 import { validateDOCXFileComprehensive, formatFileSize } from '@/utils/fileValidation';
-import html2canvas from 'html2canvas';
-import jsPDF from 'jspdf';
-// fallback to main-thread PDF if worker bundling fails
+// Dynamic lazy imports for heavy libraries - only loaded when editor is used
+const loadDocumentLibs = async () => {
+  try {
+    const [html2canvas, { jsPDF }] = await Promise.all([
+      import('html2canvas').then(m => m.default),
+      import('jspdf')
+    ]);
+    return { html2canvas, jsPDF };
+  } catch (error) {
+    console.error('Failed to load document libraries:', error);
+    throw error;
+  }
+};
 
-import '@harbour-enterprises/superdoc/style.css';
+// Dynamic imports for SuperDoc with granular chunking
+const loadSuperDoc = async () => {
+  try {
+    // Load styles first for better perceived performance
+    await import('@harbour-enterprises/superdoc/style.css');
+
+    // Load the main SuperDoc module
+    const { SuperDoc } = await import('@harbour-enterprises/superdoc');
+
+    return SuperDoc;
+  } catch (error) {
+    console.error('Failed to load SuperDoc:', error);
+    throw error;
+  }
+};
+
+// Preload function
+export const preloadSuperDoc = () => {
+  if (typeof window !== 'undefined') {
+    // Start loading on idle time
+    requestIdleCallback(() => {
+      loadSuperDoc();
+    });
+  }
+};
 
 interface SuperDocEditorProps {
   fileUrl: string;
@@ -56,19 +85,19 @@ export function SuperDocEditor({
   onSave,
   onExport,
   className = '',
-  height = '100vh'
+  height = '100vh',
 }: SuperDocEditorProps) {
   const editorRef = useRef<HTMLDivElement>(null);
   const toolbarRef = useRef<HTMLDivElement>(null);
   const containerRef = useRef<HTMLDivElement>(null);
-  
+
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [superdoc, setSuperdoc] = useState<any>(null);
   const [hasChanges, setHasChanges] = useState(false);
   const [lastSaved, setLastSaved] = useState<Date | null>(null);
   const [isSaving, setIsSaving] = useState(false);
-  
+
   // New features state
   const [isFullscreen, setIsFullscreen] = useState(false);
   const [zoom, setZoom] = useState(100);
@@ -129,28 +158,34 @@ export function SuperDocEditor({
     if (!containerRef.current) return;
 
     if (!document.fullscreenElement) {
-      containerRef.current.requestFullscreen().then(() => {
-        setIsFullscreen(true);
-      }).catch((err) => {
-        console.error('Error entering fullscreen:', err);
-        toast.error('Could not enter fullscreen mode');
-      });
+      containerRef.current
+        .requestFullscreen()
+        .then(() => {
+          setIsFullscreen(true);
+        })
+        .catch((err) => {
+          console.error('Error entering fullscreen:', err);
+          toast.error('Could not enter fullscreen mode');
+        });
     } else {
-      document.exitFullscreen().then(() => {
-        setIsFullscreen(false);
-      }).catch((err) => {
-        console.error('Error exiting fullscreen:', err);
-      });
+      document
+        .exitFullscreen()
+        .then(() => {
+          setIsFullscreen(false);
+        })
+        .catch((err) => {
+          console.error('Error exiting fullscreen:', err);
+        });
     }
   }, []);
 
   // Zoom controls
   const handleZoomIn = useCallback(() => {
-    setZoom(prev => Math.min(prev + 10, 200));
+    setZoom((prev) => Math.min(prev + 10, 200));
   }, []);
 
   const handleZoomOut = useCallback(() => {
-    setZoom(prev => Math.max(prev - 10, 50));
+    setZoom((prev) => Math.max(prev - 10, 50));
   }, []);
 
   const handleZoomReset = useCallback(() => {
@@ -167,7 +202,11 @@ export function SuperDocEditor({
 
   const computeDiffSummary = (oldText: string, newText: string): string => {
     try {
-      const clean = (html: string) => html.replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim();
+      const clean = (html: string) =>
+        html
+          .replace(/<[^>]+>/g, ' ')
+          .replace(/\s+/g, ' ')
+          .trim();
       const a = clean(oldText);
       const b = clean(newText);
       const aWords = a.split(' ');
@@ -208,12 +247,12 @@ export function SuperDocEditor({
         setError(null);
         setLoadingProgress(10);
 
-        const { SuperDoc } = await import('@harbour-enterprises/superdoc');
+        const SuperDoc = await loadSuperDoc();
         setLoadingProgress(30);
 
         const editorId = `superdoc-${Date.now()}`;
         const toolbarId = `superdoc-toolbar-${Date.now()}`;
-        
+
         if (editorRef.current) {
           editorRef.current.id = editorId;
         }
@@ -224,28 +263,30 @@ export function SuperDocEditor({
         setLoadingProgress(40);
 
         // Fetch the document with progress tracking
-        const response = await fetch(fileUrl, { 
+        const response = await fetch(fileUrl, {
           credentials: 'include',
           headers: {
-            'Accept': 'application/vnd.openxmlformats-officedocument.wordprocessingml.document,application/octet-stream,*/*'
-          }
+            Accept:
+              'application/vnd.openxmlformats-officedocument.wordprocessingml.document,application/octet-stream,*/*',
+          },
         });
-        
+
         if (!response.ok) {
           throw new Error(`Failed to fetch document: ${response.status} ${response.statusText}`);
         }
 
         setLoadingProgress(60);
         const blob = await response.blob();
-        
+
         // Ensure we have a proper file type
-        const fileType = blob.type || 'application/vnd.openxmlformats-officedocument.wordprocessingml.document';
+        const fileType =
+          blob.type || 'application/vnd.openxmlformats-officedocument.wordprocessingml.document';
         const properBlob = new Blob([blob], { type: fileType });
 
         // Create a File object
-        const file = new File([properBlob], fileName || 'document.docx', { 
+        const file = new File([properBlob], fileName || 'document.docx', {
           type: fileType,
-          lastModified: Date.now()
+          lastModified: Date.now(),
         });
 
         // Validate file
@@ -284,14 +325,14 @@ export function SuperDocEditor({
             console.log('SuperDoc ready with full editing mode:', event);
             setLoadingProgress(100);
             setIsLoading(false);
-            
+
             // Extract document info
             try {
               // Estimate page count and word count (simplified)
               const content = event?.content || '';
               const estimatedPages = Math.ceil(content.length / 3000) || 1;
               const estimatedWords = content.split(/\s+/).filter(Boolean).length || 0;
-              
+
               setPageCount(estimatedPages);
               setWordCount(estimatedWords);
             } catch (e) {
@@ -325,7 +366,6 @@ export function SuperDocEditor({
         });
 
         setSuperdoc(superdocInstance);
-
       } catch (err) {
         const errorMessage = err instanceof Error ? err.message : 'Failed to initialize editor';
         console.error('SuperDoc initialization error:', err);
@@ -369,7 +409,7 @@ export function SuperDocEditor({
     try {
       // Export current document as DOCX blob
       const exportedBlob = await superdoc.export();
-      
+
       if (!exportedBlob) {
         throw new Error('Failed to export document');
       }
@@ -382,11 +422,11 @@ export function SuperDocEditor({
       // Create FormData with the DOCX file
       const formData = new FormData();
       formData.append('file', exportedBlob, fileName || 'document.docx');
-      
+
       // Get CSRF token
       const csrfToken = document.cookie
         .split('; ')
-        .find(row => row.startsWith('csrf_token='))
+        .find((row) => row.startsWith('csrf_token='))
         ?.split('=')[1];
 
       // Upload to server
@@ -410,10 +450,12 @@ export function SuperDocEditor({
       setHasChanges(false);
       setLastSaved(new Date());
       onSave?.(exportedBlob);
-      
+
       toast.success(`${fileName || 'Document'} saved to server`, {
         id: toastId,
-        description: `Saved at ${new Date().toLocaleTimeString()} • ${formatFileSize(exportedBlob.size)}`,
+        description: `Saved at ${new Date().toLocaleTimeString()} • ${formatFileSize(
+          exportedBlob.size
+        )}`,
         duration: 3000,
       });
     } catch (err) {
@@ -437,7 +479,7 @@ export function SuperDocEditor({
 
     try {
       toast.loading('Preparing document for export...', { id: 'export' });
-      
+
       const exportedBlob = await superdoc.export();
 
       if (exportedBlob) {
@@ -451,7 +493,7 @@ export function SuperDocEditor({
         URL.revokeObjectURL(url);
 
         onExport?.(exportedBlob);
-        
+
         toast.success('Document exported successfully', {
           id: 'export',
           description: `Downloaded as ${fileName || 'document.docx'}`,
@@ -528,8 +570,10 @@ export function SuperDocEditor({
   // Page navigation
   const jumpToPage = (page: number) => {
     if (page < 1 || page > pageCount) return;
-    
-    const pageElement = document.querySelector(`.superdoc-editor [data-page="${page}"], .superdoc-editor .page:nth-child(${page})`);
+
+    const pageElement = document.querySelector(
+      `.superdoc-editor [data-page="${page}"], .superdoc-editor .page:nth-child(${page})`
+    );
     if (pageElement) {
       pageElement.scrollIntoView({ behavior: 'smooth', block: 'start' });
       setCurrentPage(page);
@@ -563,7 +607,7 @@ export function SuperDocEditor({
   // Retry loading
   const handleRetry = () => {
     setError(null);
-    setRetryCount(prev => prev + 1);
+    setRetryCount((prev) => prev + 1);
     setIsLoading(true);
   };
 
@@ -575,28 +619,21 @@ export function SuperDocEditor({
           <h3 className="text-xl font-semibold text-gray-900 mb-2">Failed to Load Document</h3>
           <p className="text-gray-600 mb-2">{error}</p>
           {retryCount > 0 && (
-            <p className="text-sm text-gray-500 mb-6">
-              Retry attempt: {retryCount}
-            </p>
+            <p className="text-sm text-gray-500 mb-6">Retry attempt: {retryCount}</p>
           )}
           <div className="flex gap-2 justify-center">
-            <Button 
-              onClick={handleRetry}
-              disabled={isLoading}
-            >
+            <Button onClick={handleRetry} disabled={isLoading}>
               <RefreshCw className={`h-4 w-4 mr-2 ${isLoading ? 'animate-spin' : ''}`} />
               {isLoading ? 'Retrying...' : 'Try Again'}
             </Button>
-            <Button 
-              onClick={() => window.location.reload()} 
-              variant="outline"
-            >
+            <Button onClick={() => window.location.reload()} variant="outline">
               Reload Page
             </Button>
           </div>
           {retryCount > 2 && (
             <p className="text-sm text-gray-500 mt-4">
-              Having trouble? The document might be corrupted or the server may be experiencing issues.
+              Having trouble? The document might be corrupted or the server may be experiencing
+              issues.
             </p>
           )}
         </div>
@@ -606,9 +643,11 @@ export function SuperDocEditor({
 
   return (
     <TooltipProvider>
-      <div 
+      <div
         ref={containerRef}
-        className={`relative flex flex-col ${className} ${isFullscreen ? 'fixed inset-0 z-50 bg-white' : ''}`} 
+        className={`relative flex flex-col ${className} ${
+          isFullscreen ? 'fixed inset-0 z-50 bg-white' : ''
+        }`}
         style={!isFullscreen ? { height } : undefined}
       >
         {isLoading && (
@@ -629,7 +668,7 @@ export function SuperDocEditor({
             </div>
           </div>
         )}
-        
+
         {/* Enhanced Action Bar with Visual Hierarchy */}
         <div className="flex items-center justify-between px-4 sm:px-6 py-3 border-b-2 border-blue-500 bg-gradient-to-r from-white via-blue-50 to-white shadow-sm shrink-0">
           <div className="flex items-center gap-3">
@@ -647,7 +686,9 @@ export function SuperDocEditor({
                 {pageCount > 0 && (
                   <>
                     <span>•</span>
-                    <span>{pageCount} {pageCount === 1 ? 'page' : 'pages'}</span>
+                    <span>
+                      {pageCount} {pageCount === 1 ? 'page' : 'pages'}
+                    </span>
                   </>
                 )}
                 {wordCount > 0 && (
@@ -658,7 +699,7 @@ export function SuperDocEditor({
                 )}
               </div>
             </div>
-            
+
             {/* Status Badges */}
             {isLoading && (
               <Badge variant="outline" className="animate-pulse ml-2">
@@ -678,14 +719,14 @@ export function SuperDocEditor({
               </Badge>
             )}
           </div>
-          
+
           <div className="flex items-center gap-1 sm:gap-2">
             {/* Undo/Redo */}
             <div className="hidden md:flex items-center gap-1 mr-2 pr-2 border-r">
               <Tooltip>
                 <TooltipTrigger asChild>
-                  <Button 
-                    variant="ghost" 
+                  <Button
+                    variant="ghost"
                     size="sm"
                     onClick={handleUndo}
                     disabled={isLoading}
@@ -700,8 +741,8 @@ export function SuperDocEditor({
               </Tooltip>
               <Tooltip>
                 <TooltipTrigger asChild>
-                  <Button 
-                    variant="ghost" 
+                  <Button
+                    variant="ghost"
                     size="sm"
                     onClick={handleRedo}
                     disabled={isLoading}
@@ -720,8 +761,8 @@ export function SuperDocEditor({
             <div className="hidden lg:flex items-center gap-1 mr-2 pr-2 border-r">
               <Tooltip>
                 <TooltipTrigger asChild>
-                  <Button 
-                    variant="ghost" 
+                  <Button
+                    variant="ghost"
                     size="sm"
                     onClick={handleZoomOut}
                     disabled={zoom <= 50}
@@ -734,8 +775,8 @@ export function SuperDocEditor({
                   <p>Zoom Out (Ctrl+-)</p>
                 </TooltipContent>
               </Tooltip>
-              <Button 
-                variant="ghost" 
+              <Button
+                variant="ghost"
                 size="sm"
                 onClick={handleZoomReset}
                 className="text-xs min-w-[3rem] h-8"
@@ -744,8 +785,8 @@ export function SuperDocEditor({
               </Button>
               <Tooltip>
                 <TooltipTrigger asChild>
-                  <Button 
-                    variant="ghost" 
+                  <Button
+                    variant="ghost"
                     size="sm"
                     onClick={handleZoomIn}
                     disabled={zoom >= 200}
@@ -766,9 +807,11 @@ export function SuperDocEditor({
                 <Button
                   onClick={handleSave}
                   disabled={isLoading || !superdoc || !hasChanges || isSaving}
-                  variant={hasChanges ? "default" : "outline"}
+                  variant={hasChanges ? 'default' : 'outline'}
                   size="sm"
-                  className={`${hasChanges ? 'bg-green-600 hover:bg-green-700 text-white' : ''} hidden sm:flex`}
+                  className={`${
+                    hasChanges ? 'bg-green-600 hover:bg-green-700 text-white' : ''
+                  } hidden sm:flex`}
                 >
                   {isSaving ? (
                     <Loader2 className="h-4 w-4 mr-2 animate-spin" />
@@ -782,7 +825,11 @@ export function SuperDocEditor({
               </TooltipTrigger>
               <TooltipContent>
                 <p>Save document (Ctrl+S)</p>
-                {lastSaved && <p className="text-xs text-gray-400">Last saved: {lastSaved.toLocaleTimeString()}</p>}
+                {lastSaved && (
+                  <p className="text-xs text-gray-400">
+                    Last saved: {lastSaved.toLocaleTimeString()}
+                  </p>
+                )}
               </TooltipContent>
             </Tooltip>
 
@@ -792,7 +839,7 @@ export function SuperDocEditor({
                 <Button
                   onClick={handleSave}
                   disabled={isLoading || !superdoc || !hasChanges || isSaving}
-                  variant={hasChanges ? "default" : "outline"}
+                  variant={hasChanges ? 'default' : 'outline'}
                   size="sm"
                   className={`sm:hidden ${hasChanges ? 'bg-green-600 hover:bg-green-700' : ''}`}
                 >
@@ -841,7 +888,7 @@ export function SuperDocEditor({
                 <Button
                   onClick={() => setShowSearch(!showSearch)}
                   disabled={isLoading || !superdoc}
-                  variant={showSearch ? "default" : "ghost"}
+                  variant={showSearch ? 'default' : 'ghost'}
                   size="sm"
                   className="h-8 w-8 p-0 hidden md:flex"
                 >
@@ -877,7 +924,7 @@ export function SuperDocEditor({
                 <Button
                   onClick={toggleTrackChanges}
                   disabled={isLoading || !superdoc}
-                  variant={showTrackChanges ? "default" : "ghost"}
+                  variant={showTrackChanges ? 'default' : 'ghost'}
                   size="sm"
                   className="h-8 w-8 p-0 hidden xl:flex"
                 >
@@ -895,7 +942,7 @@ export function SuperDocEditor({
                 <Button
                   onClick={() => setShowComments(!showComments)}
                   disabled={isLoading || !superdoc}
-                  variant={showComments ? "default" : "ghost"}
+                  variant={showComments ? 'default' : 'ghost'}
                   size="sm"
                   className="h-8 w-8 p-0 hidden xl:flex"
                 >
@@ -950,10 +997,20 @@ export function SuperDocEditor({
               <Button onClick={handleSearch} size="sm" disabled={!searchTerm}>
                 Find
               </Button>
-              <Button onClick={handleReplace} size="sm" variant="outline" disabled={!searchTerm || !replaceTerm}>
+              <Button
+                onClick={handleReplace}
+                size="sm"
+                variant="outline"
+                disabled={!searchTerm || !replaceTerm}
+              >
                 Replace
               </Button>
-              <Button onClick={handleReplaceAll} size="sm" variant="outline" disabled={!searchTerm || !replaceTerm}>
+              <Button
+                onClick={handleReplaceAll}
+                size="sm"
+                variant="outline"
+                disabled={!searchTerm || !replaceTerm}
+              >
                 Replace All
               </Button>
               <Button onClick={() => setShowSearch(false)} size="sm" variant="ghost">
@@ -1000,7 +1057,7 @@ export function SuperDocEditor({
         )}
 
         {/* SuperDoc Toolbar - Flexible Height */}
-        <div 
+        <div
           ref={toolbarRef}
           className="superdoc-toolbar shrink-0 border-b bg-white overflow-x-auto overflow-y-hidden"
           style={{ minHeight: '48px', maxHeight: '120px' }}
@@ -1009,8 +1066,8 @@ export function SuperDocEditor({
         {/* Main Content Area with Editor and Sidebars */}
         <div className="flex-1 flex overflow-hidden">
           {/* SuperDoc Editor Container */}
-          <div 
-            ref={editorRef} 
+          <div
+            ref={editorRef}
             className="superdoc-editor flex-1 overflow-y-auto overflow-x-auto bg-gray-100 transition-transform duration-200"
             style={{
               transform: `scale(${zoom / 100})`,
@@ -1035,17 +1092,12 @@ export function SuperDocEditor({
                   ✕
                 </Button>
               </div>
-              
+
               <div className="text-sm text-gray-500 text-center py-8">
                 <GitBranch className="h-8 w-8 mx-auto mb-2 opacity-50" />
                 <p>Track changes panel</p>
                 <p className="text-xs mt-1">Changes will appear here</p>
-                <Button
-                  size="sm"
-                  variant="outline"
-                  className="mt-4"
-                  onClick={toggleTrackChanges}
-                >
+                <Button size="sm" variant="outline" className="mt-4" onClick={toggleTrackChanges}>
                   {showTrackChanges ? 'Stop' : 'Start'} Tracking
                 </Button>
               </div>
@@ -1069,16 +1121,12 @@ export function SuperDocEditor({
                   ✕
                 </Button>
               </div>
-              
+
               <div className="text-sm text-gray-500 text-center py-8">
                 <MessageSquare className="h-8 w-8 mx-auto mb-2 opacity-50" />
                 <p>No comments yet</p>
                 <p className="text-xs mt-1">Comments will appear here</p>
-                <Button
-                  size="sm"
-                  variant="outline"
-                  className="mt-4"
-                >
+                <Button size="sm" variant="outline" className="mt-4">
                   Add Comment
                 </Button>
               </div>
