@@ -5,13 +5,17 @@ let lastResetTime = Date.now();
 let appStartTime = Date.now();
 const APP_STARTUP_GRACE_PERIOD = 15000; // 15 seconds// Enhanced auth loop detection with startup grace period
 const authGlobalState = {
-  recordAuthRequest: () => {
-    const now = Date.now();
-    const isAppStartup = now - appStartTime < 20000; // 20 second startup grace period (increased)
-    const threshold = isAppStartup ? 30 : 12; // More lenient thresholds
+  recordAuthRequest: (url?: string) => {
+    // Skip counting CSRF-related requests
+    if (url && (url.includes('/api/health') || url.includes('csrf'))) {
+      return false;
+    }
     
-    // Reset counter every 15 seconds during startup, 10 seconds otherwise
-    const resetInterval = isAppStartup ? 15000 : 10000;
+    const now = Date.now();
+    const isAppStartup = now - appStartTime < 30000;
+    const threshold = isAppStartup ? 30 : 15; // Reduced thresholds
+    
+    const resetInterval = isAppStartup ? 20000 : 15000;
     
     if (now - lastResetTime > resetInterval) {
       authRequestCount = 0;
@@ -22,10 +26,15 @@ const authGlobalState = {
     authRequestCount++;
     lastResetTime = now;
     
-    // If we've made too many requests, stop (silently)
     if (authRequestCount > threshold) {
+      console.warn(`Auth loop detected: ${authRequestCount} requests in ${resetInterval}ms`);
       authLoopDetected = true;
       localStorage.setItem('authLoopDetected', 'true');
+      setTimeout(() => {
+        authLoopDetected = false;
+        authRequestCount = 0;
+        localStorage.removeItem('authLoopDetected');
+      }, 5000);
       return true;
     }
     
@@ -45,9 +54,22 @@ const authGlobalState = {
   },
 
   shouldPreventAuthRequest(): boolean {
-    // Check if auth loop is detected or if we're in localStorage
+    // Only prevent if actively in a loop (don't rely on stale localStorage)
+    const now = Date.now();
     const storedLoop = localStorage.getItem('authLoopDetected');
-    return authLoopDetected || storedLoop === 'true';
+    const lastLoopTime = localStorage.getItem('lastAuthLoopReset');
+    
+    // Clear old loop flags after 10 seconds
+    if (storedLoop === 'true' && lastLoopTime) {
+      const timeSinceLoop = now - parseInt(lastLoopTime);
+      if (timeSinceLoop > 10000) {
+        localStorage.removeItem('authLoopDetected');
+        localStorage.removeItem('lastAuthLoopReset');
+        return false;
+      }
+    }
+    
+    return authLoopDetected;
   }
 };
 

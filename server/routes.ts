@@ -92,8 +92,6 @@ function generatePointGroupsAuto(techStacks: TechStackData[]): Point[][] {
   const numGroups = Math.ceil(totalPoints / optimalGroupSize);
   const adjustedGroupSize = Math.ceil(totalPoints / numGroups);
   
-  // ...existing code...
-  
   // Sort points by tech stack for even distribution across groups
   allPoints.sort((a, b) => a.techStack.localeCompare(b.techStack));
   
@@ -1168,22 +1166,33 @@ export async function registerRoutes(app: Express): Promise<Server> {
           return res.status(400).json({ message: 'No file provided' });
         }
 
-        // Validate file size (50MB max)
-        const MAX_FILE_SIZE = 50 * 1024 * 1024; // 50MB
+        // Validate file size using environment variable
+        const MAX_FILE_SIZE = Number(process.env.MAX_FILE_SIZE || 25_000_000);
         if (file.size > MAX_FILE_SIZE) {
+          const maxSizeMB = (MAX_FILE_SIZE / 1024 / 1024).toFixed(0);
+          const fileSizeMB = (file.size / 1024 / 1024).toFixed(1);
           return res.status(400).json({ 
-            message: `File too large. Maximum size is 50MB. Your file is ${(file.size / 1024 / 1024).toFixed(1)}MB` 
+            message: `File too large. Maximum size is ${maxSizeMB}MB. Your file is ${fileSizeMB}MB` 
           });
         }
 
-        // Validate it's actually a DOCX file (ZIP signature: PK\x03\x04)
-        const isValidDOCX = file.buffer[0] === 0x50 && 
-                            file.buffer[1] === 0x4B && 
-                            file.buffer[2] === 0x03 && 
-                            file.buffer[3] === 0x04;
+        // Validate it's actually a DOCX file (ZIP signature and internal structure)
+        const isValidZip = file.buffer[0] === 0x50 && 
+                          file.buffer[1] === 0x4B && 
+                          file.buffer[2] === 0x03 && 
+                          file.buffer[3] === 0x04;
         
-        if (!isValidDOCX) {
-          return res.status(400).json({ message: 'Invalid DOCX file format' });
+        if (!isValidZip) {
+          return res.status(400).json({ message: 'Invalid DOCX file format - not a valid ZIP archive' });
+        }
+        
+        // Validate DOCX internal structure
+        const bufferString = file.buffer.toString('binary');
+        const hasContentTypes = bufferString.includes('[Content_Types].xml');
+        const hasDocumentXml = bufferString.includes('word/document.xml');
+        
+        if (!hasContentTypes || !hasDocumentXml) {
+          return res.status(400).json({ message: 'Invalid DOCX file format - missing required internal structure' });
         }
 
         // Get resume and validate ownership
@@ -1222,8 +1231,12 @@ export async function registerRoutes(app: Express): Promise<Server> {
               logger.info(`🗑️  Deleted old backup: ${oldBackupPath}`);
             }
           } catch (err) {
-            logger.warn({ context: err }, 'Failed to create backup:');
-            // Continue anyway - backup failure shouldn't block save
+            logger.error({ context: err }, 'Failed to create backup - this is critical for version history');
+            // Backup is critical - fail the save operation
+            return res.status(500).json({ 
+              message: 'Failed to create backup before saving. Save operation aborted to prevent data loss.',
+              error: 'BACKUP_FAILED'
+            });
           }
         }
 
@@ -1391,38 +1404,60 @@ export async function registerRoutes(app: Express): Promise<Server> {
         await fsp.mkdir(resumesDir, { recursive: true });
       }
       
+      // Check available disk space before processing
+      const fs = await import('fs');
+      const stats = await fsp.stat(resumesDir);
+      const totalFileSize = files.reduce((sum, file) => sum + file.size, 0);
+      const requiredSpace = totalFileSize * 2; // Buffer for processing
+      
+      try {
+        const diskSpace = await fsp.statfs?.(resumesDir) || { bavail: Number.MAX_SAFE_INTEGER, bsize: 1 };
+        const availableSpace = diskSpace.bavail * diskSpace.bsize;
+        if (availableSpace < requiredSpace) {
+          throw new Error('Insufficient disk space for upload');
+        }
+      } catch (e) {
+        logger.warn('Could not check disk space, proceeding with upload');
+      }
+      
+      const uploadedFiles: string[] = [];
+      
       // EXTREME PERFORMANCE: Process files in parallel with DOCX content extraction
       const uploadPromises = files.map(async (file, index) => {
         const fileStartTime = Date.now();
+        let filePath: string | null = null;
         
-        // Extract actual content from DOCX file
-        let extractedContent: string = '';
-        let queueBackground = false;
-        
-        // Basic DOCX file validation - check file signature
         try {
-          // Check ZIP signature (DOCX files are ZIP archives)
-          if (file.buffer.length < 4) {
-            throw new Error(`File too small to be a valid DOCX: ${file.originalname}`);
-          }
+          // Extract actual content from DOCX file
+          let extractedContent: string = '';
+          let queueBackground = false;
           
-          const signature = file.buffer.slice(0, 4);
-          if (signature[0] !== 0x50 || signature[1] !== 0x4B) {
-            throw new Error(`Invalid DOCX file signature: ${file.originalname}`);
+          // Basic DOCX file validation - check file signature
+          try {
+            // Check ZIP signature (DOCX files are ZIP archives)
+            if (file.buffer.length < 4) {
+              throw new Error(`File too small to be a valid DOCX: ${file.originalname}`);
+            }
+            
+            const signature = file.buffer.slice(0, 4);
+            if (signature[0] !== 0x50 || signature[1] !== 0x4B) {
+              throw new Error(`Invalid DOCX file signature: ${file.originalname}`);
+            }
+            
+            // Queue for background processing
+            queueBackground = true;
+          } catch (error) {
+            logger.error({ err: error }, `File validation failed ${file.originalname}`);
+            throw error;
           }
-          
-          // Queue for background processing
-          queueBackground = true;
-        } catch (error) {
-          logger.error({ err: error }, `File validation failed ${file.originalname}`);
-          throw error;
-        }
         
-        // Persist original file to disk
-        const uniqueName = `${randomUUID()}.docx`;
-        const absolutePath = path.join(resumesDir, uniqueName);
-        await fsp.writeFile(absolutePath, file.buffer);
-        const relativePath = path.relative(process.cwd(), absolutePath);
+          // Persist original file to disk
+          const uniqueName = `${randomUUID()}.docx`;
+          const absolutePath = path.join(resumesDir, uniqueName);
+          await fsp.writeFile(absolutePath, file.buffer);
+          filePath = absolutePath;
+          uploadedFiles.push(absolutePath);
+          const relativePath = path.relative(process.cwd(), absolutePath);
         
         const resumeData = insertResumeSchema.parse({
           userId,
@@ -1460,17 +1495,42 @@ export async function registerRoutes(app: Express): Promise<Server> {
           await enhancedRedisService.set(`thumbs:${hash}`, { ready: false, pages: 0 }, { ttl: 86400, namespace: 'files' });
         } catch {}
 
-        const fileTime = Date.now() - fileStartTime;
-        logger.info(`⚡ File ${index + 1}/${files.length} done in ${fileTime}ms: ${file.originalname}`);
-        
-        return resume;
+          const fileTime = Date.now() - fileStartTime;
+          logger.info(`⚡ File ${index + 1}/${files.length} done in ${fileTime}ms: ${file.originalname}`);
+          
+          return resume;
+        } catch (error) {
+          // Clean up file on error
+          if (filePath) {
+            try {
+              await fsp.unlink(filePath);
+              const fileIndex = uploadedFiles.indexOf(filePath);
+              if (fileIndex > -1) uploadedFiles.splice(fileIndex, 1);
+            } catch (cleanupError) {
+              logger.error({ error: cleanupError }, 'Failed to cleanup file on error');
+            }
+          }
+          throw error;
+        }
       });
       
-      const uploadedResumes = await Promise.all(uploadPromises);
-      const totalTime = Date.now() - startTime;
-      
-      logger.info(`🚀 ULTRA-FAST upload completed: ${files.length} files in ${totalTime}ms (avg: ${Math.round(totalTime/files.length)}ms/file)`);
-      res.json(uploadedResumes);
+      try {
+        const uploadedResumes = await Promise.all(uploadPromises);
+        const totalTime = Date.now() - startTime;
+        
+        logger.info(`🚀 ULTRA-FAST upload completed: ${files.length} files in ${totalTime}ms (avg: ${Math.round(totalTime/files.length)}ms/file)`);
+        res.json(uploadedResumes);
+      } catch (uploadError) {
+        // Clean up all uploaded files on failure
+        for (const filePath of uploadedFiles) {
+          try {
+            await fsp.unlink(filePath);
+          } catch (cleanupError) {
+            logger.error({ error: cleanupError, filePath }, 'Failed to cleanup file');
+          }
+        }
+        throw uploadError;
+      }
       
     } catch (error) {
       logger.error({ error: error }, '💥 Upload failed:');

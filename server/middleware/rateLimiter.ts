@@ -43,7 +43,7 @@ export function createRateLimiter(config: RateLimitConfig) {
       // Set rate limit headers
       res.setHeader('X-RateLimit-Limit', max.toString());
       res.setHeader('X-RateLimit-Remaining', remaining.toString());
-      res.setHeader('X-RateLimit-Reset', resetAt.toISOString());
+      res.setHeader('X-RateLimit-Reset', new Date(resetAt).toISOString());
       
       if (!allowed) {
         logger.warn({ key, ip: req.ip, path: req.path }, 'Rate limit exceeded');

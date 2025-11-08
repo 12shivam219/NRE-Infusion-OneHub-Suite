@@ -326,7 +326,7 @@ export async function setupAuth(app: Express) {
       name: 'sid', // Custom session name
       rolling: true, // Refresh session with each request
       cookie: {
-        maxAge: 60 * 60 * 1000, // 1 hour - matches client timeout
+        maxAge: Number(process.env.SESSION_TIMEOUT_MS || 4 * 60 * 60 * 1000), // 4 hours default, configurable
         secure: process.env.NODE_ENV === "production", // Only send secure cookies in production
         httpOnly: true, // Prevent XSS attacks
         sameSite: process.env.NODE_ENV === 'production' ? 'strict' : 'lax', // stricter in production
@@ -670,27 +670,30 @@ function cleanupLoginAttempts(): void {
   const cleanupTime = new Date(now.getTime() - CLEANUP_INTERVAL);
   
   try {
-    // Clean up login attempts
-    for (const [key, attempt] of loginAttempts.entries()) {
-      const isExpired = attempt.lastAttempt < cleanupTime;
-      const isUnlocked = !attempt.lockedUntil || attempt.lockedUntil < now;
+    // Only run expensive cleanup if we're approaching limits
+    const shouldCleanup = loginAttempts.size > MAX_LOGIN_ATTEMPTS_STORE_SIZE * 0.8 || 
+                         activeSessions.size > 500;
+    
+    if (shouldCleanup) {
+      // Clean up login attempts
+      for (const [key, attempt] of loginAttempts.entries()) {
+        const isExpired = attempt.lastAttempt < cleanupTime;
+        const isUnlocked = !attempt.lockedUntil || attempt.lockedUntil < now;
+        
+        if (isExpired && isUnlocked) {
+          loginAttempts.delete(key);
+        }
+      }
       
-      if (isExpired && isUnlocked) {
-        loginAttempts.delete(key);
+      // Clean up expired sessions
+      for (const [sessionId, session] of activeSessions.entries()) {
+        if (!session || !session.expires || now > new Date(session.expires)) {
+          activeSessions.delete(sessionId);
+        }
       }
     }
     
-    // Clean up expired sessions
-    for (const [sessionId, session] of activeSessions.entries()) {
-      if (!session || !session.expires || now > new Date(session.expires)) {
-        activeSessions.delete(sessionId);
-      } else if (session.lastActive) {
-        // Update last active time for active sessions
-        session.lastActive = now;
-      }
-    }
-    
-    // Enforce maximum size limits
+    // Enforce maximum size limits only when exceeded
     if (loginAttempts.size > MAX_LOGIN_ATTEMPTS_STORE_SIZE) {
       // Get all entries sorted by last attempt time (oldest first)
       const entries = Array.from(loginAttempts.entries())

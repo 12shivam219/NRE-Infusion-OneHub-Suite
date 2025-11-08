@@ -23,44 +23,60 @@ interface CacheMetadata {
 }
 
 class EnhancedRedisService {
-  private client: Redis;
+  private client: Redis | any;
   private isReady = false;
+  private useInMemory = false;
 
   constructor() {
-    this.client = new Redis({
-      host: process.env.REDIS_HOST || 'localhost',
-      port: parseInt(process.env.REDIS_PORT || '6379'),
-      password: process.env.REDIS_PASSWORD || undefined,
-      maxRetriesPerRequest: 3,
-      enableReadyCheck: true,
-      retryStrategy: (times: number) => Math.min(times * 50, 2000),
-      reconnectOnError: (err: Error) => err.message.includes('READONLY'),
-      // Performance optimizations
-      connectTimeout: 5000,
-      commandTimeout: 2000,
-      lazyConnect: true,
-      keepAlive: 30000,
-      // Connection pool settings
-      family: 4, // Force IPv4
-      db: 0,
-    });
+    // Check if Redis should be disabled
+    const DISABLE_REDIS = process.env.REDIS_DISABLED === 'true' || process.env.DISABLE_REDIS === 'true';
+    
+    if (DISABLE_REDIS) {
+      logger.info('Enhanced Redis service using in-memory fallback');
+      this.useInMemory = true;
+      this.isReady = true;
+      // Use in-memory client from redis.ts
+      import('./redis').then(({ redisService }) => {
+        this.client = redisService.getClient();
+      });
+    } else {
+      this.client = new Redis({
+        host: process.env.REDIS_HOST || 'localhost',
+        port: parseInt(process.env.REDIS_PORT || '6379'),
+        password: process.env.REDIS_PASSWORD || undefined,
+        maxRetriesPerRequest: 3,
+        enableReadyCheck: true,
+        retryStrategy: (times: number) => Math.min(times * 50, 2000),
+        reconnectOnError: (err: Error) => err.message.includes('READONLY'),
+        // Performance optimizations
+        connectTimeout: 5000,
+        commandTimeout: 2000,
+        lazyConnect: true,
+        keepAlive: 30000,
+        // Connection pool settings
+        family: 4, // Force IPv4
+        db: 0,
+      });
 
-    this.initializeEventHandlers();
+      this.initializeEventHandlers();
+    }
   }
 
   private initializeEventHandlers(): void {
-    this.client
-      .on('ready', () => {
-        this.isReady = true;
-        logger.info('Enhanced Redis service ready');
-      })
-      .on('error', (err) => {
-        logger.error('Enhanced Redis error: ' + (err instanceof Error ? err.message : String(err)));
-      })
-      .on('close', () => {
-        this.isReady = false;
-        logger.warn('Enhanced Redis connection closed');
-      });
+    if (!this.useInMemory && this.client) {
+      this.client
+        .on('ready', () => {
+          this.isReady = true;
+          logger.info('Enhanced Redis service ready');
+        })
+        .on('error', (err: any) => {
+          logger.error('Enhanced Redis error: ' + (err instanceof Error ? err.message : String(err)));
+        })
+        .on('close', () => {
+          this.isReady = false;
+          logger.warn('Enhanced Redis connection closed');
+        });
+    }
   }
 
   /**
@@ -250,7 +266,7 @@ class EnhancedRedisService {
       if (keys.length === 0) return 0;
       
       const pipeline = this.client.pipeline();
-      keys.forEach(key => pipeline.del(key));
+      keys.forEach((key: any) => pipeline.del(key));
       
       await pipeline.exec();
       return keys.length;

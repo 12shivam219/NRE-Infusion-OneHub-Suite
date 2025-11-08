@@ -21,6 +21,7 @@ import { AppHeader } from '@/components/shared/app-header';
 import { BreadcrumbNavigation } from '@/components/shared/breadcrumb-navigation';
 import { EnhancedHeader } from '@/components/shared/enhanced-header';
 import { MetricCard, StatusDistribution } from '@/components/ui/data-visualization';
+import ReloadMonitor from '@/components/debug/ReloadMonitor';
 
 // Import Marketing components with prefetch
 const RequirementsSection = lazy(() => {
@@ -54,7 +55,11 @@ const ConsultantsSection = lazy(() => {
 const AdvancedRequirementsForm = lazy(() => {
   const componentPromise = import('@/components/marketing/advanced-requirements-form');
   // Only prefetch if the user has good network conditions
-  if ((navigator as any).connection?.effectiveType === '4g') {
+  if (
+    'connection' in navigator && 
+    (navigator as Navigator & { connection?: { effectiveType: string } })
+      .connection?.effectiveType === '4g'
+  ) {
     componentPromise.then(() => {
       // Warm up the module
       import('@/components/marketing/requirements-section');
@@ -95,47 +100,35 @@ export default function MarketingPage() {
   const [showConsultantForm, setShowConsultantForm] = useState(false);
   const isPageVisible = usePageVisibility();
 
-  // Register Service Worker for caching
+  // Register Service Worker for caching - only once per session
   useEffect(() => {
-    if ('serviceWorker' in navigator) {
-      window.addEventListener('load', () => {
-        navigator.serviceWorker
-          .register('/service-worker.js')
-          .then((registration) => {
-            console.log('SW registered:', registration);
-          })
-          .catch((error) => {
-            console.log('SW registration failed:', error);
-          });
-      });
-    }
-  }, []);
-
-  // Initialize CSRF token on page load
-  useEffect(() => {
-    const initializeCSRF = async () => {
+    const registerServiceWorker = async () => {
+      if (!('serviceWorker' in navigator) || sessionStorage.getItem('sw-registered')) {
+        return;
+      }
+      
       try {
-        // Check if CSRF token exists
-        const existingToken = document.cookie
-          .split('; ')
-          .find((row) => row.startsWith('csrf_token='))
-          ?.split('=')[1];
-
-        if (!existingToken) {
-          console.log('🔒 Initializing CSRF token for marketing page...');
-          // Make a simple GET request to initialize CSRF token
-          await apiRequest('GET', '/api/auth/user');
-          console.log('🔒 CSRF token initialized successfully');
-        } else {
-          console.log('🔒 CSRF token already exists');
+        const registration = await navigator.serviceWorker.register('/service-worker.js');
+        sessionStorage.setItem('sw-registered', 'true');
+        // Use a proper logging service instead of console.log
+        if (process.env.NODE_ENV === 'development') {
+          // eslint-disable-next-line no-console
+          console.info('[SW] Registration successful:', registration.scope);
         }
-      } catch (error) {
-        console.warn('🔒 Failed to initialize CSRF token:', error);
+      } catch (error: unknown) {
+        const errorMessage = error instanceof Error ? error.message : 'Unknown error';
+        // Log to error reporting service in production
+        if (process.env.NODE_ENV === 'development') {
+          // eslint-disable-next-line no-console
+          console.error('[SW] Registration failed:', errorMessage);
+        }
       }
     };
 
-    initializeCSRF();
+    registerServiceWorker();
   }, []);
+
+
 
   // Define interface for navigation items
   interface NavigationItem {
@@ -265,16 +258,24 @@ export default function MarketingPage() {
 
         const data = await response.json();
 
-        // Cache the new data
-        localStorage.setItem('marketing_stats', JSON.stringify(data));
-        localStorage.setItem('marketing_stats_time', Date.now().toString());
+        // Cache the new data with error handling
+        try {
+          localStorage.setItem('marketing_stats', JSON.stringify(data));
+          localStorage.setItem('marketing_stats_time', Date.now().toString());
+        } catch (storageError) {
+          console.warn('Failed to cache marketing stats:', storageError);
+        }
 
         return data;
       } catch {
         // Return cached data if available, otherwise fallback
-        const cachedData = localStorage.getItem('marketing_stats');
-        if (cachedData) {
-          return JSON.parse(cachedData);
+        try {
+          const cachedData = localStorage.getItem('marketing_stats');
+          if (cachedData) {
+            return JSON.parse(cachedData);
+          }
+        } catch (cacheError) {
+          console.warn('Failed to parse cached marketing stats:', cacheError);
         }
 
         return {
@@ -284,11 +285,11 @@ export default function MarketingPage() {
         };
       }
     },
-    refetchInterval: isPageVisible ? 30000 : false,
+    refetchInterval: isPageVisible ? 120000 : false, // Increased to 2 minutes to reduce reloading
     refetchIntervalInBackground: false,
-    staleTime: 300000, // Consider stale after 5 minutes
-    retry: 2, // Retry failed requests twice
-    retryDelay: 1000, // Wait 1 second between retries
+    staleTime: 600000, // Consider stale after 10 minutes
+    retry: 1, // Reduce retries to prevent excessive requests
+    retryDelay: 2000, // Increase delay between retries
   });
 
   // Enhanced header actions
@@ -346,6 +347,7 @@ export default function MarketingPage() {
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-slate-50 via-white to-blue-50/30">
+      <ReloadMonitor />
       {/* Shared Header with Auto-hide */}
       <AppHeader currentPage="marketing" />
 
@@ -528,6 +530,7 @@ export default function MarketingPage() {
               setShowRequirementForm(false);
             } catch (error) {
               console.error('Error submitting requirements:', error);
+              // Don't close form on error to allow retry
             }
           }}
         />
@@ -542,6 +545,7 @@ export default function MarketingPage() {
               setShowInterviewForm(false);
             } catch (error) {
               console.error('Error scheduling interview:', error);
+              // Don't close form on error to allow retry
             }
           }}
         />
@@ -556,6 +560,7 @@ export default function MarketingPage() {
               setShowConsultantForm(false);
             } catch (error) {
               console.error('Error adding consultant:', error);
+              // Don't close form on error to allow retry
             }
           }}
         />

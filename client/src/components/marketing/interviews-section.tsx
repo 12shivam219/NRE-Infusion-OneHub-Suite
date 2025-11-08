@@ -266,9 +266,10 @@ export default function InterviewsSection() {
   };
 
   const handleEditInterview = (interview: Interview) => {
-    // Convert Interview to InterviewFormData
-    const formData: InterviewFormData = {
+    // Convert Interview to InterviewFormData and preserve the ID
+    const formData: InterviewFormData & { id: string } = {
       ...interview,
+      id: interview.id, // Explicitly preserve the ID
       timezone: interview.timezone || 'UTC', // Provide default value
       status: interview.status || 'Scheduled', // Provide default value
     };
@@ -298,8 +299,11 @@ export default function InterviewsSection() {
 
   const handleFormSubmit = async (interviewData: InterviewFormData) => {
     if (showEditForm && selectedInterview) {
-      // Store the ID separately since it's not part of the form data
-      const interviewId = (selectedInterview as Interview & { id: string }).id;
+      // Get the interview ID from the original interview data
+      const interviewId = (selectedInterview as any).id;
+      if (!interviewId) {
+        throw new Error('Interview ID is missing for update operation');
+      }
       await updateMutation.mutateAsync({ id: interviewId, data: interviewData });
     } else {
       await createMutation.mutateAsync(interviewData);

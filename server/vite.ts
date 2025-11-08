@@ -39,14 +39,31 @@ export async function setupVite(app: Express, server: Server) {
     createLogger = viteModule.createLogger;
     
     try {
+      // Load config but provide fallback values
       const configModule = await import('../vite.config.ts');
       viteConfig = configModule;
+      logger.info('Loaded Vite config successfully');
     } catch (configErr) {
-      logger.warn({ context: configErr }, 'Could not load vite.config.ts, using default config:');
-      viteConfig = { default: {} };
+      logger.warn('Could not load vite.config.ts, using default config');
+      logger.error({ error: configErr }, 'Config load error details:');
+      // Provide minimal fallback config
+      viteConfig = {
+        default: {
+          root: path.resolve(__dirname, '../client'),
+          server: {
+            middlewareMode: true,
+            hmr: {
+              protocol: 'ws',
+              port: 24678,
+              host: 'localhost'
+            },
+          }
+        }
+      };
     }
+    logger.info('Vite module loaded successfully');
   } catch (err) {
-    logger.error({ error: err }, 'Error importing Vite:');
+    logger.error({ error: err }, 'Critical error importing Vite:');
     throw err;
   }
 
@@ -54,14 +71,18 @@ export async function setupVite(app: Express, server: Server) {
 
   const port = parseInt(process.env.PORT || '5000', 10);
   
-  // Correctly shape Vite's server options for development
+  // Enhanced server options for development
   const serverOptions = {
     middlewareMode: true,
     hmr: {
+      protocol: 'ws',
       port: 24678,
       host: 'localhost',
+      clientPort: 24678,
     },
-    host: 'localhost',
+    host: true,
+    port: port,
+    cors: true,
   };
 
   const vite = await createViteServer({
@@ -211,9 +232,21 @@ export function serveStatic(app: Express) {
         // Indicate that encoding selection may vary
         res.setHeader('Vary', 'Accept-Encoding');
 
-        // Content-Type based on extension
-        const contentType = require('mime-types').lookup(path.extname(fileOnDisk)) || 'application/octet-stream';
-        res.setHeader('Content-Type', contentType as string);
+        // Content-Type based on extension with explicit JS handling
+        const ext = path.extname(fileOnDisk).toLowerCase();
+        let contentType: string;
+        
+        if (ext === '.js' || ext === '.mjs') {
+          contentType = 'text/javascript';
+        } else if (ext === '.css') {
+          contentType = 'text/css';
+        } else if (ext === '.json') {
+          contentType = 'application/json';
+        } else {
+          contentType = require('mime-types').lookup(ext) || 'application/octet-stream';
+        }
+        
+        res.setHeader('Content-Type', contentType);
         res.setHeader('Content-Length', String(stat.size));
         res.setHeader('Last-Modified', stat.mtime.toUTCString());
 

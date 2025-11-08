@@ -19,6 +19,7 @@ import { redisService } from './services/redis';
 import { websocketService } from './services/websocket-service';
 import { enhancedRedisService } from './services/enhanced-redis-service';
 import { logger } from './utils/logger';
+import { SERVER_CONFIG, CACHE_CONFIG } from './config/constants';
 // streamFileService removed - no longer needed after removing ZIP export functionality
 
 // Load environment variables from .env file
@@ -27,11 +28,40 @@ config();
 // Load NODE_ENV default to development if not set (ensures non-secure cookies locally)
 process.env.NODE_ENV = process.env.NODE_ENV || 'development';
 // Validate required environment variables early (fail fast)
-const requiredEnvVars = ['DATABASE_URL', 'SESSION_SECRET', 'JWT_SECRET', 'JWT_REFRESH_SECRET'];
+const requiredEnvVars = [
+  'DATABASE_URL', 
+  'SESSION_SECRET', 
+  'JWT_SECRET', 
+  'JWT_REFRESH_SECRET',
+  'ENCRYPTION_KEY'
+];
+
+// Optional but recommended environment variables
+const recommendedEnvVars = [
+  'EMAIL_HOST',
+  'EMAIL_USER', 
+  'EMAIL_PASS',
+  'REDIS_HOST',
+  'MAX_FILE_SIZE',
+  'SESSION_TIMEOUT_MS'
+];
+
 const missing = requiredEnvVars.filter((v) => !process.env[v]);
+const missingRecommended = recommendedEnvVars.filter((v) => !process.env[v]);
+
 if (missing.length > 0) {
   logger.error(`Error: missing required environment variables: ${missing.join(', ')}`);
   // Exit with non-zero so deploys fail fast when a secret is missing
+  process.exit(1);
+}
+
+if (missingRecommended.length > 0) {
+  logger.warn(`Warning: missing recommended environment variables: ${missingRecommended.join(', ')}. Some features may not work properly.`);
+}
+
+// Validate ENCRYPTION_KEY length
+if (process.env.ENCRYPTION_KEY && process.env.ENCRYPTION_KEY.length < 32) {
+  logger.error('ENCRYPTION_KEY must be at least 32 characters long');
   process.exit(1);
 }
 
@@ -76,8 +106,15 @@ app.use(
 // Response compression
 app.use(compression());
 
-// Caching headers middleware for static assets
+// MIME type and caching headers middleware for static assets
 app.use((req, res, next) => {
+  // Set explicit MIME types for JavaScript files
+  if (req.path.match(/\.(js|mjs)$/i)) {
+    res.setHeader('Content-Type', 'text/javascript');
+  } else if (req.path.match(/\.css$/i)) {
+    res.setHeader('Content-Type', 'text/css');
+  }
+  
   // Cache static assets for 1 year (content-hashed by build process)
   if (req.path.match(/\.(js|css|woff2?|ttf|eot|svg|ico|png|jpg|jpeg|gif|webp)$/i)) {
     res.setHeader('Cache-Control', 'public, max-age=31536000, immutable');
@@ -185,23 +222,20 @@ app.use((req, res, next) => {
   server.on('upgrade', (request, socket, head) => {
     const { pathname, search } = new URL(request.url || '', `http://${request.headers.host}`);
     
-    // In development, allow Vite HMR WebSocket upgrades - they use token-based authentication
-    if (process.env.NODE_ENV === 'development' && search && search.includes('token=')) {
-      // This is a Vite HMR connection - let it pass through completely
-      // Do not interfere with these connections at all
+    // In development, allow Vite HMR WebSocket upgrades
+    if (process.env.NODE_ENV === 'development' && search?.includes('token=')) {
+      // This is a Vite HMR connection - let it pass through
       return;
     }
     
-    // Only handle /ws path for our application's WebSocket service
+    // Handle our application's WebSocket service
     if (pathname === '/ws') {
-      // Let the WebSocketServer handle /ws connections automatically
+      // Let the WebSocketServer handle /ws connections
       return;
     }
     
-    // For unknown WebSocket paths that aren't Vite HMR, close the connection
-    if (!search || !search.includes('token=')) {
-      socket.destroy();
-    }
+    // Close unknown WebSocket connections
+    socket.destroy();
   });
 
   // Enhanced error handler with categorization
@@ -286,6 +320,11 @@ app.use((req, res, next) => {
       // Test database connection first
       const { testDatabaseConnection } = await import('./db');
       const dbHealthy = await testDatabaseConnection();
+      if (!dbHealthy) {
+        logger.error('Database connection failed - application may not function properly');
+        throw new Error('Database connection failed');
+      }
+      logger.info('Database connection verified');
       
       // Initialize Redis health (client connects lazily under the hood)
       log('Checking Redis health...');

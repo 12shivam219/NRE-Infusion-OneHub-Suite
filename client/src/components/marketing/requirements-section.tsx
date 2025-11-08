@@ -17,12 +17,14 @@ import {
   Trash2,
   Loader2,
   AlertCircle,
+  Calendar,
 } from 'lucide-react';
 import { lazy, Suspense } from 'react';
 import { toast } from 'sonner';
 
 const AdvancedRequirementsForm = lazy(() => import('./advanced-requirements-form'));
 const NextStepComments = lazy(() => import('./next-step-comments'));
+const InterviewForm = lazy(() => import('./interview-form'));
 const AdminDeleteButton = lazy(() =>
   import('./admin-delete-button').then((mod) => ({ default: mod.AdminDeleteButton }))
 );
@@ -50,6 +52,8 @@ export default function RequirementsSection() {
   const [viewRequirement, setViewRequirement] = useState<any>(null);
   const [deleteConfirm, setDeleteConfirm] = useState<string | null>(null);
   const [showAuditLog, setShowAuditLog] = useState(false);
+  const [showInterviewForm, setShowInterviewForm] = useState(false);
+  const [selectedRequirementForInterview, setSelectedRequirementForInterview] = useState<any>(null);
 
   // Debounce search query to reduce API calls
   const debouncedSearch = useDebounce(searchQuery, 300);
@@ -334,6 +338,45 @@ export default function RequirementsSection() {
     return Promise.resolve();
   };
 
+  // Create interview mutation
+  const createInterviewMutation = useMutation({
+    mutationFn: async (interviewData: any) => {
+      console.log('Sending interview data to API:', interviewData);
+      const response = await apiRequest('POST', '/api/marketing/interviews', interviewData);
+      if (!response.ok) {
+        const errorText = await response.text();
+        console.error('API Error Response:', errorText);
+        let error;
+        try {
+          error = JSON.parse(errorText);
+        } catch {
+          error = { message: errorText };
+        }
+        throw new Error(error.message || 'Failed to create interview');
+      }
+      return response.json();
+    },
+    onSuccess: () => {
+      toast.success('Interview created successfully!');
+      setShowInterviewForm(false);
+      setSelectedRequirementForInterview(null);
+    },
+    onError: (error: Error) => {
+      toast.error(error.message || 'Failed to create interview');
+    },
+  });
+
+  const handleCreateInterview = (requirement: any) => {
+    console.log('Creating interview for requirement:', requirement);
+    setSelectedRequirementForInterview(requirement);
+    setShowInterviewForm(true);
+  };
+
+  const handleInterviewFormSubmit = async (interviewData: any) => {
+    console.log('Submitting interview data:', interviewData);
+    await createInterviewMutation.mutateAsync(interviewData);
+  };
+
   const confirmDelete = async () => {
     if (deleteConfirm) {
       await deleteMutation.mutateAsync(deleteConfirm);
@@ -518,6 +561,15 @@ export default function RequirementsSection() {
                     >
                       <Edit size={16} />
                     </Button>
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      onClick={() => handleCreateInterview(requirement)}
+                      className="h-8 w-8 p-0 hover:text-blue-600 hover:bg-blue-50"
+                      title="Create Interview"
+                    >
+                      <Calendar size={16} />
+                    </Button>
                     <Suspense
                       fallback={
                         <Button variant="ghost" size="sm" className="h-8 w-8 p-0" disabled>
@@ -527,7 +579,7 @@ export default function RequirementsSection() {
                     >
                       <AdminDeleteButton
                         onDelete={() => handleDeleteRequirement(requirement.id)}
-                        className="h-8 w-8 p-0 text-red-600 hover:text-red-700 hover:bg-red-50"
+                        className="h-8 w-8 p-0 hover:text-red-600 hover:bg-red-50"
                       >
                         {deleteMutation.isPending && deleteConfirm === requirement.id ? (
                           <Loader2 size={16} className="animate-spin" />
@@ -630,120 +682,234 @@ export default function RequirementsSection() {
               <DialogDescription>View requirement details</DialogDescription>
             </DialogHeader>
 
-            <div className="space-y-4">
-              <div className="grid grid-cols-2 gap-4">
-                <div>
-                  <label className="text-sm font-semibold text-slate-700">Status</label>
-                  <div className="text-slate-600">
-                    <Badge className={getStatusColor(viewRequirement.status)}>
-                      {viewRequirement.status}
-                    </Badge>
+            <div className="space-y-6">
+              {/* Basic Information */}
+              <div>
+                <h3 className="text-lg font-semibold text-slate-900 mb-3">Basic Information</h3>
+                <div className="grid grid-cols-2 gap-4">
+                  <div>
+                    <label className="text-sm font-semibold text-slate-700">Status</label>
+                    <div className="text-slate-600">
+                      <Badge className={getStatusColor(viewRequirement.status)}>
+                        {viewRequirement.status}
+                      </Badge>
+                    </div>
                   </div>
-                </div>
 
-                <EditableField
-                  label="Job Title"
-                  value={viewRequirement.jobTitle}
-                  onSave={(value) =>
-                    updateFieldMutation.mutateAsync({
-                      id: viewRequirement.id,
-                      field: 'jobTitle',
-                      value,
-                    })
-                  }
-                />
+                  <EditableField
+                    label="Job Title"
+                    value={viewRequirement.jobTitle}
+                    onSave={(value) =>
+                      updateFieldMutation.mutateAsync({
+                        id: viewRequirement.id,
+                        field: 'jobTitle',
+                        value,
+                      })
+                    }
+                  />
 
-                <EditableField
-                  label="Client Company"
-                  value={viewRequirement.clientCompany}
-                  onSave={(value) =>
-                    updateFieldMutation.mutateAsync({
-                      id: viewRequirement.id,
-                      field: 'clientCompany',
-                      value,
-                    })
-                  }
-                />
+                  <EditableField
+                    label="Applied For"
+                    value={viewRequirement.appliedFor || ''}
+                    onSave={(value) =>
+                      updateFieldMutation.mutateAsync({
+                        id: viewRequirement.id,
+                        field: 'appliedFor',
+                        value,
+                      })
+                    }
+                  />
 
-                <EditableField
-                  label="Primary Tech Stack"
-                  value={viewRequirement.primaryTechStack}
-                  onSave={(value) =>
-                    updateFieldMutation.mutateAsync({
-                      id: viewRequirement.id,
-                      field: 'primaryTechStack',
-                      value,
-                    })
-                  }
-                />
+                  <div>
+                    <label className="text-sm font-semibold text-slate-700">Assigned Consultant</label>
+                    <p className="text-slate-600">
+                      {getConsultantName(viewRequirement.consultantId)}
+                    </p>
+                  </div>
 
-                <EditableField
-                  label="Rate"
-                  value={viewRequirement.rate}
-                  onSave={(value) =>
-                    updateFieldMutation.mutateAsync({
-                      id: viewRequirement.id,
-                      field: 'rate',
-                      value,
-                    })
-                  }
-                />
+                  <EditableField
+                    label="Primary Tech Stack"
+                    value={viewRequirement.primaryTechStack}
+                    onSave={(value) =>
+                      updateFieldMutation.mutateAsync({
+                        id: viewRequirement.id,
+                        field: 'primaryTechStack',
+                        value,
+                      })
+                    }
+                  />
 
-                <EditableField
-                  label="Duration"
-                  value={viewRequirement.duration}
-                  onSave={(value) =>
-                    updateFieldMutation.mutateAsync({
-                      id: viewRequirement.id,
-                      field: 'duration',
-                      value,
-                    })
-                  }
-                />
+                  <EditableField
+                    label="Rate"
+                    value={viewRequirement.rate || ''}
+                    onSave={(value) =>
+                      updateFieldMutation.mutateAsync({
+                        id: viewRequirement.id,
+                        field: 'rate',
+                        value,
+                      })
+                    }
+                  />
 
-                <EditableField
-                  label="Remote"
-                  value={viewRequirement.remote}
-                  onSave={(value) =>
-                    updateFieldMutation.mutateAsync({
-                      id: viewRequirement.id,
-                      field: 'remote',
-                      value,
-                    })
-                  }
-                />
+                  <EditableField
+                    label="Duration"
+                    value={viewRequirement.duration || ''}
+                    onSave={(value) =>
+                      updateFieldMutation.mutateAsync({
+                        id: viewRequirement.id,
+                        field: 'duration',
+                        value,
+                      })
+                    }
+                  />
 
-                <div>
-                  <label className="text-sm font-semibold text-slate-700">Created</label>
-                  <p className="text-slate-600">
-                    {new Date(viewRequirement.createdAt).toLocaleDateString()}
-                  </p>
+                  <EditableField
+                    label="Remote Policy"
+                    value={viewRequirement.remote || ''}
+                    onSave={(value) =>
+                      updateFieldMutation.mutateAsync({
+                        id: viewRequirement.id,
+                        field: 'remote',
+                        value,
+                      })
+                    }
+                  />
+
+                  <div>
+                    <label className="text-sm font-semibold text-slate-700">Created</label>
+                    <p className="text-slate-600">
+                      {new Date(viewRequirement.createdAt).toLocaleDateString()}
+                    </p>
+                  </div>
+
+                  <div>
+                    <label className="text-sm font-semibold text-slate-700">Last Updated</label>
+                    <p className="text-slate-600">
+                      {viewRequirement.updatedAt ? new Date(viewRequirement.updatedAt).toLocaleDateString() : 'N/A'}
+                    </p>
+                  </div>
                 </div>
               </div>
 
-              <EditableField
-                label="IMP Name"
-                value={viewRequirement.impName || ''}
-                onSave={(value) =>
-                  updateFieldMutation.mutateAsync({
-                    id: viewRequirement.id,
-                    field: 'impName',
-                    value,
-                  })
-                }
-              />
+              {/* Client & IMP Information */}
+              <div>
+                <h3 className="text-lg font-semibold text-slate-900 mb-3">Client & IMP Information</h3>
+                <div className="grid grid-cols-2 gap-4">
+                  <EditableField
+                    label="Client Company"
+                    value={viewRequirement.clientCompany}
+                    onSave={(value) =>
+                      updateFieldMutation.mutateAsync({
+                        id: viewRequirement.id,
+                        field: 'clientCompany',
+                        value,
+                      })
+                    }
+                  />
 
-              <EditableField
-                label="Vendor Company"
-                value={viewRequirement.vendorCompany || ''}
-                onSave={(value) =>
-                  updateFieldMutation.mutateAsync({
-                    id: viewRequirement.id,
-                    field: 'vendorCompany',
-                    value,
-                  })
-                }
-              />
+                  <EditableField
+                    label="IMP Name"
+                    value={viewRequirement.impName || ''}
+                    onSave={(value) =>
+                      updateFieldMutation.mutateAsync({
+                        id: viewRequirement.id,
+                        field: 'impName',
+                        value,
+                      })
+                    }
+                  />
+
+                  <EditableField
+                    label="Client Website"
+                    value={viewRequirement.clientWebsite || ''}
+                    onSave={(value) =>
+                      updateFieldMutation.mutateAsync({
+                        id: viewRequirement.id,
+                        field: 'clientWebsite',
+                        value,
+                      })
+                    }
+                  />
+
+                  <EditableField
+                    label="IMP Website"
+                    value={viewRequirement.impWebsite || ''}
+                    onSave={(value) =>
+                      updateFieldMutation.mutateAsync({
+                        id: viewRequirement.id,
+                        field: 'impWebsite',
+                        value,
+                      })
+                    }
+                  />
+                </div>
+              </div>
+
+              {/* Vendor Information */}
+              <div>
+                <h3 className="text-lg font-semibold text-slate-900 mb-3">Vendor Information</h3>
+                <div className="grid grid-cols-2 gap-4">
+                  <EditableField
+                    label="Vendor Company"
+                    value={viewRequirement.vendorCompany || ''}
+                    onSave={(value) =>
+                      updateFieldMutation.mutateAsync({
+                        id: viewRequirement.id,
+                        field: 'vendorCompany',
+                        value,
+                      })
+                    }
+                  />
+
+                  <EditableField
+                    label="Vendor Website"
+                    value={viewRequirement.vendorWebsite || ''}
+                    onSave={(value) =>
+                      updateFieldMutation.mutateAsync({
+                        id: viewRequirement.id,
+                        field: 'vendorWebsite',
+                        value,
+                      })
+                    }
+                  />
+
+                  <EditableField
+                    label="Vendor Contact Person"
+                    value={viewRequirement.vendorPersonName || ''}
+                    onSave={(value) =>
+                      updateFieldMutation.mutateAsync({
+                        id: viewRequirement.id,
+                        field: 'vendorPersonName',
+                        value,
+                      })
+                    }
+                  />
+
+                  <EditableField
+                    label="Vendor Phone"
+                    value={viewRequirement.vendorPhone || ''}
+                    onSave={(value) =>
+                      updateFieldMutation.mutateAsync({
+                        id: viewRequirement.id,
+                        field: 'vendorPhone',
+                        value,
+                      })
+                    }
+                  />
+
+                  <EditableField
+                    label="Vendor Email"
+                    value={viewRequirement.vendorEmail || ''}
+                    onSave={(value) =>
+                      updateFieldMutation.mutateAsync({
+                        id: viewRequirement.id,
+                        field: 'vendorEmail',
+                        value,
+                      })
+                    }
+                  />
+                </div>
+              </div>
 
               {viewRequirement.nextStep && (
                 <div>
@@ -837,6 +1003,26 @@ export default function RequirementsSection() {
           </DialogContent>
         </Dialog>
       )}
+
+      {/* Interview Form */}
+      <Suspense fallback={<div className="p-4">Loading interview form...</div>}>
+        <InterviewForm
+          open={showInterviewForm}
+          onClose={() => {
+            setShowInterviewForm(false);
+            setSelectedRequirementForInterview(null);
+          }}
+          onSubmit={handleInterviewFormSubmit}
+          initialData={selectedRequirementForInterview ? {
+            requirementId: selectedRequirementForInterview.id,
+            displayRequirementId: selectedRequirementForInterview.displayId || selectedRequirementForInterview.id,
+            consultantId: selectedRequirementForInterview.consultantId || '',
+            vendorCompany: selectedRequirementForInterview.vendorCompany || '',
+            jobDescription: selectedRequirementForInterview.completeJobDescription || '',
+          } : undefined}
+          isSubmitting={createInterviewMutation.isPending}
+        />
+      </Suspense>
     </ErrorBoundaryWrapper>
   );
 }

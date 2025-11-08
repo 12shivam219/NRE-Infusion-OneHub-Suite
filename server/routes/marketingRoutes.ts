@@ -1267,14 +1267,87 @@ router.get('/interviews/:id', async (req, res) => {
 // Create interview
 router.post('/interviews', conditionalCSRF, writeOperationsRateLimiter, async (req, res) => {
   try {
+    // Validate required fields first
+    const { requirementId, consultantId, interviewDate, interviewTime } = req.body;
+    
+    if (!requirementId || requirementId.trim() === '') {
+      return res.status(400).json({ 
+        message: 'Requirement ID is required',
+        errors: [{ path: ['requirementId'], message: 'Requirement is required' }]
+      });
+    }
+    
+    if (!consultantId || consultantId.trim() === '') {
+      return res.status(400).json({ 
+        message: 'Consultant ID is required',
+        errors: [{ path: ['consultantId'], message: 'Consultant is required' }]
+      });
+    }
+    
+    if (!interviewDate) {
+      return res.status(400).json({ 
+        message: 'Interview date is required',
+        errors: [{ path: ['interviewDate'], message: 'Interview date is required' }]
+      });
+    }
+    
+    if (!interviewTime || interviewTime.trim() === '') {
+      return res.status(400).json({ 
+        message: 'Interview time is required',
+        errors: [{ path: ['interviewTime'], message: 'Interview time is required' }]
+      });
+    }
+    
+    // Verify that the requirement and consultant exist
+    const [requirement, consultant] = await Promise.all([
+      db.query.requirements.findFirst({
+        where: eq(requirements.id, requirementId),
+        columns: { id: true }
+      }),
+      db.query.consultants.findFirst({
+        where: eq(consultants.id, consultantId),
+        columns: { id: true }
+      })
+    ]);
+    
+    if (!requirement) {
+      return res.status(400).json({ 
+        message: 'Invalid requirement ID',
+        errors: [{ path: ['requirementId'], message: 'Requirement not found' }]
+      });
+    }
+    
+    if (!consultant) {
+      return res.status(400).json({ 
+        message: 'Invalid consultant ID',
+        errors: [{ path: ['consultantId'], message: 'Consultant not found' }]
+      });
+    }
+    
     // Sanitize input
     const sanitizedData = sanitizeInterviewData(req.body);
     
     // Generate display ID
     const displayId = await generateInterviewDisplayId();
     
+    // Parse interview date if it's a string
+    let parsedInterviewDate = interviewDate;
+    if (typeof interviewDate === 'string') {
+      parsedInterviewDate = new Date(interviewDate);
+      if (isNaN(parsedInterviewDate.getTime())) {
+        return res.status(400).json({ 
+          message: 'Invalid interview date format',
+          errors: [{ path: ['interviewDate'], message: 'Invalid date format' }]
+        });
+      }
+    }
+    
     const interviewData = insertInterviewSchema.parse({
       ...sanitizedData,
+      requirementId: requirementId.trim(),
+      consultantId: consultantId.trim(),
+      interviewDate: parsedInterviewDate,
+      interviewTime: interviewTime.trim(),
       displayId,
       createdBy: req.user!.id
     });

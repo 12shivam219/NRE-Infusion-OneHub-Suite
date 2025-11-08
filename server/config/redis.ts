@@ -37,55 +37,111 @@ const redisConfig: RedisOptions = {
   password: REDIS_PASSWORD,
 };
 
-// Create Redis clients
-let redisClient: Redis | Cluster;
-let redisPubClient: Redis | Cluster;
-let redisSubClient: Redis | Cluster;
+// Check if Redis should be disabled (for development without Redis)
+const DISABLE_REDIS = process.env.REDIS_DISABLED === 'true' || process.env.DISABLE_REDIS === 'true';
 
-if (REDIS_CLUSTER) {
-  // Redis Cluster mode for high availability
-  const clusterNodes = process.env.REDIS_CLUSTER_NODES?.split(',').map(node => {
-    const [host, port] = node.split(':');
-    return { host, port: parseInt(port) };
-  }) || [{ host: 'localhost', port: 6379 }];
+// Create Redis clients with fallback to in-memory when Redis is not available
+let redisClient: Redis | Cluster | any;
+let redisPubClient: Redis | Cluster | any;
+let redisSubClient: Redis | Cluster | any;
+let useInMemoryFallback = false;
+
+if (DISABLE_REDIS) {
+  logger.info('Using in-memory Redis fallback (Redis disabled)');
+  useInMemoryFallback = true;
   
-  redisClient = new Redis.Cluster(clusterNodes, {
-    redisOptions: redisConfig,
-    clusterRetryStrategy(times) {
-      const delay = Math.min(times * 50, 2000);
-      return delay;
+  // Simple in-memory store implementation
+  const inMemoryStore = new Map();
+  const inMemoryExpiry = new Map();
+  
+  redisClient = {
+    get: async (key: string) => inMemoryStore.get(key),
+    set: async (key: string, value: any, mode?: string, duration?: number) => {
+      inMemoryStore.set(key, value);
+      if (duration) {
+        inMemoryExpiry.set(key, Date.now() + (duration * 1000));
+      }
+      return 'OK';
     },
-  });
+    incr: async (key: string) => {
+      const current = inMemoryStore.get(key) || 0;
+      const newValue = current + 1;
+      inMemoryStore.set(key, newValue);
+      return newValue;
+    },
+    expire: async (key: string, seconds: number) => {
+      inMemoryExpiry.set(key, Date.now() + (seconds * 1000));
+      return 1;
+    },
+    exists: async (key: string) => inMemoryStore.has(key),
+    del: async (key: string) => {
+      inMemoryStore.delete(key);
+      inMemoryExpiry.delete(key);
+      return 1;
+    }
+  };
   
-  redisPubClient = new Redis.Cluster(clusterNodes, { redisOptions: redisConfig });
-  redisSubClient = new Redis.Cluster(clusterNodes, { redisOptions: redisConfig });
+  // Clean up expired keys periodically
+  setInterval(() => {
+    const now = Date.now();
+    for (const [key, expiry] of inMemoryExpiry.entries()) {
+      if (now >= expiry) {
+        inMemoryStore.delete(key);
+        inMemoryExpiry.delete(key);
+      }
+    }
+  }, 60000); // Clean up every minute
+  
+  redisPubClient = redisClient;
+  redisSubClient = redisClient;
 } else {
-  // Single Redis instance (for development or small scale)
-  redisClient = new Redis(REDIS_URL, redisConfig);
-  redisPubClient = new Redis(REDIS_URL, redisConfig);
-  redisSubClient = new Redis(REDIS_URL, redisConfig);
+  if (REDIS_CLUSTER) {
+    // Redis Cluster mode for high availability
+    const clusterNodes = process.env.REDIS_CLUSTER_NODES?.split(',').map(node => {
+      const [host, port] = node.split(':');
+      return { host, port: parseInt(port) };
+    }) || [{ host: 'localhost', port: 6379 }];
+    
+    redisClient = new Redis.Cluster(clusterNodes, {
+      redisOptions: redisConfig,
+      clusterRetryStrategy(times) {
+        const delay = Math.min(times * 50, 2000);
+        return delay;
+      },
+    });
+    
+    redisPubClient = new Redis.Cluster(clusterNodes, { redisOptions: redisConfig });
+    redisSubClient = new Redis.Cluster(clusterNodes, { redisOptions: redisConfig });
+  } else {
+    // Single Redis instance (for development or small scale)
+    redisClient = new Redis(REDIS_URL, redisConfig);
+    redisPubClient = new Redis(REDIS_URL, redisConfig);
+    redisSubClient = new Redis(REDIS_URL, redisConfig);
+  }
 }
 
-// Event handlers
-redisClient.on('connect', () => {
-  logger.info('Redis client connected');
-});
+// Event handlers (only for real Redis clients)
+if (!useInMemoryFallback && redisClient) {
+  redisClient.on('connect', () => {
+    logger.info('Redis client connected');
+  });
 
-redisClient.on('ready', () => {
-  logger.info('Redis client ready');
-});
+  redisClient.on('ready', () => {
+    logger.info('Redis client ready');
+  });
 
-redisClient.on('error', (err) => {
-  logger.error({ err }, 'Redis client error');
-});
+  redisClient.on('error', (err: any) => {
+    logger.error({ err }, 'Redis client error');
+  });
 
-redisClient.on('close', () => {
-  logger.warn('Redis client connection closed');
-});
+  redisClient.on('close', () => {
+    logger.warn('Redis client connection closed');
+  });
 
-redisClient.on('reconnecting', (ms) => {
-  logger.info({ reconnectDelay: ms }, 'Redis client reconnecting');
-});
+  redisClient.on('reconnecting', (ms: any) => {
+    logger.info({ reconnectDelay: ms }, 'Redis client reconnecting');
+  });
+}
 
 // Cache key prefixes for organization
 export const CACHE_PREFIXES = {
@@ -216,7 +272,7 @@ export class CacheService {
     try {
       if (keys.length === 0) return [];
       const values = await redisClient.mget(...keys);
-      return values.map(val => {
+      return values.map((val: any) => {
         if (!val) return null;
         try {
           return JSON.parse(val);

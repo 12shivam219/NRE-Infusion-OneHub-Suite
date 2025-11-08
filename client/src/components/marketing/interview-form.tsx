@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { useForm, Controller } from 'react-hook-form';
 import { z } from 'zod';
 import { zodResolver } from '@hookform/resolvers/zod';
@@ -44,6 +44,7 @@ import { InterviewStatus } from '@shared/schema';
 // Form interface
 interface InterviewFormData {
   requirementId?: string;
+  displayRequirementId?: string;  // For displaying the formatted requirement ID
   interviewDate?: string;
   interviewTime?: string;
   timezone: string;
@@ -110,39 +111,29 @@ export default function InterviewForm({
 }: InterviewFormProps) {
   const [activeTab, setActiveTab] = useState('basic');
 
-  // Fetch requirements for selection
-  const { data: requirements = [] } = useQuery({
-    queryKey: ['/api/marketing/requirements'],
-    queryFn: async () => {
-      try {
-        const response = await apiRequest('GET', '/api/marketing/requirements');
-        if (!response.ok) return [];
-        const data = await response.json();
-        return Array.isArray(data) ? data : [];
-      } catch {
-        return [] as any[];
-      }
-    },
-    retry: false,
-  });
-
   // Fetch consultants for assignment
-  const { data: consultants = [] } = useQuery({
-    queryKey: ['/api/marketing/consultants'],
+  const { data: consultants = [], isLoading: consultantsLoading } = useQuery({
+    queryKey: ['/api/marketing/consultants', 'all'],
+    staleTime: 5 * 60 * 1000, // Cache for 5 minutes to prevent excessive refetches
+    gcTime: 10 * 60 * 1000, // Keep in garbage collection for 10 minutes
     queryFn: async () => {
       try {
-        const response = await apiRequest('GET', '/api/marketing/consultants?status=Active');
+        const response = await apiRequest('GET', '/api/marketing/consultants?limit=100&page=1');
         if (!response.ok) return [];
-        const data = await response.json();
+        const result = await response.json();
+        // API returns { data: consultants[], pagination: {...} }
+        const data = result.data || result;
+        console.log('Fetched consultants:', data);
         return Array.isArray(data) ? data : [];
-      } catch {
+      } catch (error) {
+        console.error('Error fetching consultants:', error);
         return [] as any[];
       }
     },
-    retry: false,
+    retry: 1,
   });
 
-  // All fields are flexible - accept any data type
+  // Form validation schema with required fields
   const {
     control,
     handleSubmit,
@@ -154,49 +145,145 @@ export default function InterviewForm({
   } = useForm({
     resolver: zodResolver(
       z.object({
-        requirementId: z.any().optional(),
-        interviewDate: z.any().optional(),
-        interviewTime: z.any().optional(),
-        timezone: z.any().optional(),
-        interviewType: z.any().optional(),
-        status: z.any().optional(),
-        consultantId: z.any().optional(),
-        vendorCompany: z.any().optional(),
-        interviewWith: z.any().optional(),
-        result: z.any().optional(),
-        round: z.any().optional(),
-        mode: z.any().optional(),
-        meetingType: z.any().optional(),
-        duration: z.any().optional(),
-        subjectLine: z.any().optional(),
-        interviewer: z.any().optional(),
-        interviewLink: z.any().optional(),
-        interviewFocus: z.any().optional(),
-        specialNote: z.any().optional(),
-        jobDescription: z.any().optional(),
-        feedbackNotes: z.any().optional(),
+        requirementId: z.string().min(1, "Requirement is required"),
+        displayRequirementId: z.string().optional(),
+        interviewDate: z.date().or(z.string().min(1, "Interview date is required")),
+        interviewTime: z.string().min(1, "Interview time is required"),
+        timezone: z.string().default("EST"),
+        interviewType: z.string().optional(),
+        status: z.string().default("Confirmed"),
+        consultantId: z.string().min(1, "Consultant is required"),
+        vendorCompany: z.string().optional(),
+        interviewWith: z.string().optional(),
+        result: z.string().optional(),
+        round: z.string().optional(),
+        mode: z.string().optional(),
+        meetingType: z.string().optional(),
+        duration: z.string().optional(),
+        subjectLine: z.string().optional(),
+        interviewer: z.string().optional(),
+        interviewLink: z.string().optional(),
+        interviewFocus: z.string().optional(),
+        specialNote: z.string().optional(),
+        jobDescription: z.string().optional(),
+        feedbackNotes: z.string().optional(),
       }).passthrough()
     ),
     defaultValues: {
-      status: InterviewStatus.CONFIRMED,
+      requirementId: '',
+      displayRequirementId: '',
+      interviewDate: '',
+      interviewTime: '',
       timezone: 'EST',
+      interviewType: '',
+      status: InterviewStatus.CONFIRMED,
+      consultantId: '',
+      vendorCompany: '',
       interviewWith: 'Client',
+      result: '',
       round: '1',
       mode: 'Video',
+      meetingType: '',
       duration: '1 hour',
-      ...initialData,
+      subjectLine: '',
+      interviewer: '',
+      interviewLink: '',
+      interviewFocus: '',
+      specialNote: '',
+      jobDescription: '',
+      feedbackNotes: '',
     },
     mode: 'onBlur',
   });
 
-  // Note: Removed watch() calls to prevent re-renders on every keystroke that cause focus loss
+  // Effect to handle initialData changes
+  useEffect(() => {
+    if (open && initialData) {
+      console.log('InterviewForm received initialData:', initialData);
+      
+      // Reset form with initial data
+      reset({
+        requirementId: initialData.requirementId || '',
+        displayRequirementId: initialData.displayRequirementId || initialData.requirementId || '',
+        interviewDate: initialData.interviewDate || '',
+        interviewTime: initialData.interviewTime || '',
+        timezone: initialData.timezone || 'EST',
+        interviewType: initialData.interviewType || '',
+        status: (initialData.status as any) || 'Confirmed',
+        consultantId: initialData.consultantId || '',
+        vendorCompany: initialData.vendorCompany || '',
+        interviewWith: initialData.interviewWith || 'Client',
+        result: initialData.result || '',
+        round: initialData.round || '1',
+        mode: initialData.mode || 'Video',
+        meetingType: initialData.meetingType || '',
+        duration: initialData.duration || '1 hour',
+        subjectLine: initialData.subjectLine || '',
+        interviewer: initialData.interviewer || '',
+        interviewLink: initialData.interviewLink || '',
+        interviewFocus: initialData.interviewFocus || '',
+        specialNote: initialData.specialNote || '',
+        jobDescription: initialData.jobDescription || '',
+        feedbackNotes: initialData.feedbackNotes || '',
+      });
+    }
+  }, [open, initialData, reset]);
 
-  const getFieldError = (fieldName: string) => undefined;
-  const getFieldStatus = (fieldName: string) => 'default' as const;
+  // Get field error and status
+  const getFieldError = (fieldName: string) => {
+    const error = errors[fieldName as keyof typeof errors];
+    return error?.message as string | undefined;
+  };
+  
+  const getFieldStatus = (fieldName: string) => {
+    const error = errors[fieldName as keyof typeof errors];
+    if (error) return 'error' as const;
+    return 'default' as const;
+  };
 
   const handleFormSubmit = async (data: InterviewFormData) => {
     try {
+      // Validate required fields
+      if (!data.requirementId || data.requirementId.trim() === '') {
+        toast.error('Please select a requirement');
+        return;
+      }
+      
+      if (!data.consultantId || data.consultantId.trim() === '') {
+        toast.error('Please select a consultant');
+        return;
+      }
+      
+      if (!data.interviewDate) {
+        toast.error('Please select an interview date');
+        return;
+      }
+      
+      if (!data.interviewTime || data.interviewTime.trim() === '') {
+        toast.error('Please enter an interview time');
+        return;
+      }
+
+      // Ensure interviewDate is a proper Date object
+      if (data.interviewDate) {
+        let date: Date;
+        if (typeof data.interviewDate === 'string') {
+          date = new Date(data.interviewDate);
+        } else {
+          date = data.interviewDate as Date;
+        }
+        
+        if (!isNaN(date.getTime())) {
+          data.interviewDate = date as any;
+        } else {
+          throw new Error('Invalid interview date format');
+        }
+      }
+
+      console.log('Form data being submitted:', data);
       await onSubmit(data);
+
+
       reset();
     } catch (error: any) {
       // Error handling is done in the parent component
@@ -207,16 +294,13 @@ export default function InterviewForm({
   // Auto-generate subject line based on form data
   const generateSubjectLine = () => {
     const formValues = watch();
-    const requirement = requirements.find((r: any) => r.id === formValues.requirementId);
-    if (requirement) {
-      const subjectLine = `Interview - ${requirement.jobTitle} - Round ${formValues.round} - ${
-        formValues.interviewDate
-          ? new Date(formValues.interviewDate).toLocaleDateString()
-          : '[Date]'
-      }`;
-      setValue('subjectLine', subjectLine);
-      toast.success('Subject line generated');
-    }
+    const subjectLine = `Interview - Requirement ${formValues.requirementId} - Round ${formValues.round} - ${
+      formValues.interviewDate
+        ? new Date(formValues.interviewDate).toLocaleDateString()
+        : '[Date]'
+    }`;
+    setValue('subjectLine', subjectLine);
+    toast.success('Subject line generated');
   };
 
   return (
@@ -233,11 +317,9 @@ export default function InterviewForm({
                 Fill out the form to schedule a comprehensive interview
               </DialogDescription>
             </div>
-            <div className="flex items-center space-x-2">
-              <Badge variant={isValid ? 'default' : 'secondary'}>
-                {isValid ? 'Valid' : 'Incomplete'}
-              </Badge>
-            </div>
+            <Badge variant={isValid ? 'default' : 'secondary'}>
+              {isValid ? 'Valid' : 'Incomplete'}
+            </Badge>
           </div>
         </DialogHeader>
 
@@ -276,7 +358,7 @@ export default function InterviewForm({
                 <CardContent className="space-y-4">
                   <div className="grid grid-cols-2 gap-4">
                     <div>
-                      <Label htmlFor="requirementId">Requirement *</Label>
+                      <Label htmlFor="requirementId">Requirement ID</Label>
                       <FieldWrapper
                         error={getFieldError('requirementId')}
                         status={getFieldStatus('requirementId')}
@@ -285,53 +367,68 @@ export default function InterviewForm({
                           name="requirementId"
                           control={control}
                           render={({ field }) => (
-                            <Select onValueChange={field.onChange} value={field.value}>
-                              <SelectTrigger>
-                                <SelectValue placeholder="Select requirement" />
-                              </SelectTrigger>
-                              <SelectContent>
-                                {(Array.isArray(requirements) ? requirements : []).map(
-                                  (requirement: any) => (
-                                    <SelectItem key={requirement?.id} value={requirement?.id}>
-                                      {requirement?.jobTitle} - {requirement?.clientCompany}
-                                    </SelectItem>
-                                  )
-                                )}
-                              </SelectContent>
-                            </Select>
+                            <Input
+                              {...field}
+                              readOnly
+                              value={watch('displayRequirementId') || field.value || ''}
+                              className="bg-gray-50"
+                            />
                           )}
                         />
                       </FieldWrapper>
                     </div>
 
                     <div>
-                      <Label htmlFor="consultantId">Assigned Consultant</Label>
+                      <Label htmlFor="consultantId">Assigned Consultant *</Label>
                       <FieldWrapper error={getFieldError('consultantId')}>
                         <Controller
                           name="consultantId"
                           control={control}
-                          render={({ field }) => (
-                            <Select
-                              onValueChange={(value) =>
-                                field.onChange(value === 'unassigned' ? null : value)
+                          render={({ field }) => {
+                            // Show read-only field if consultant is pre-assigned from requirement
+                            if (initialData?.consultantId && field.value) {
+                              if (consultantsLoading) {
+                                return (
+                                  <Input
+                                    readOnly
+                                    value="Loading consultant..."
+                                    className="bg-gray-50"
+                                  />
+                                );
                               }
-                              value={field.value ?? 'unassigned'}
-                            >
-                              <SelectTrigger>
-                                <SelectValue placeholder="Select consultant" />
-                              </SelectTrigger>
-                              <SelectContent>
-                                <SelectItem value="unassigned">No consultant assigned</SelectItem>
-                                {(Array.isArray(consultants) ? consultants : [])
-                                  .filter((c: any) => c?.status === 'Active')
-                                  .map((consultant: any) => (
-                                    <SelectItem key={consultant?.id} value={consultant?.id}>
-                                      {consultant?.name} ({consultant?.email})
-                                    </SelectItem>
-                                  ))}
-                              </SelectContent>
-                            </Select>
-                          )}
+                              
+                              const consultant = consultants.find((c: any) => c.id === field.value);
+                              const consultantName = consultant ? `${consultant.name} (${consultant.email})` : 'Consultant not found';
+                              return (
+                                <Input
+                                  readOnly
+                                  value={consultantName}
+                                  className="bg-gray-50"
+                                />
+                              );
+                            }
+                            
+                            // Show dropdown for manual selection
+                            return (
+                              <Select
+                                onValueChange={field.onChange}
+                                value={field.value || ''}
+                              >
+                                <SelectTrigger className={errors.consultantId ? 'border-red-500' : ''}>
+                                  <SelectValue placeholder="Select consultant" />
+                                </SelectTrigger>
+                                <SelectContent>
+                                  {(Array.isArray(consultants) ? consultants : [])
+                                    .filter((c: any) => c?.status === 'Active')
+                                    .map((consultant: any) => (
+                                      <SelectItem key={consultant?.id} value={consultant?.id}>
+                                        {consultant?.name} ({consultant?.email})
+                                      </SelectItem>
+                                    ))}
+                                </SelectContent>
+                              </Select>
+                            );
+                          }}
                         />
                       </FieldWrapper>
                     </div>
@@ -768,7 +865,7 @@ export default function InterviewForm({
             <Button type="button" variant="outline" onClick={onClose} disabled={isSubmitting}>
               Cancel
             </Button>
-            <Button type="submit" form="interview-form" disabled={isSubmitting || !isValid}>
+            <Button type="submit" form="interview-form" disabled={isSubmitting || !isValid || Object.keys(errors).length > 0}>
               <Save className="h-4 w-4 mr-2" />
               {isSubmitting
                 ? 'Scheduling...'

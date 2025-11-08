@@ -66,7 +66,7 @@ export const authenticateJWT = async (req: Request, res: Response, next: NextFun
               eq(users.id, (decoded as any).userId),
               or(
                 isNull(users.accountLockedUntil),
-                lt(users.accountLockedUntil as any, new Date())
+                lt(users.accountLockedUntil, new Date())
               )
             ),
           columns: {

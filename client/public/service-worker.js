@@ -99,12 +99,14 @@ self.addEventListener('fetch', (event) => {
   // Always avoid caching full page navigations to prevent stale auth state issues
   if (request.mode === 'navigate') {
     event.respondWith(
-      fetch(request).catch(error => {
+      fetch(request, { credentials: 'include' }).catch(error => {
         console.warn('[SW] Navigation fetch failed:', error.message);
-        // Return a basic response for failed navigation requests
-        return new Response('Navigation failed', { 
-          status: 503, 
-          statusText: 'Service Unavailable' 
+        // For navigation failures, try to serve cached offline page
+        return caches.match('/offline.html').then(cachedResponse => {
+          return cachedResponse || new Response('Navigation failed', { 
+            status: 503, 
+            statusText: 'Service Unavailable' 
+          });
         });
       })
     );
@@ -162,9 +164,14 @@ function getStrategy(pathname) {
   }
   
   // Default strategies
-  // IMPORTANT: Do NOT cache API calls. Use network-only to avoid stale auth and noisy errors.
-  if (pathname.startsWith('/api/')) {
+  // IMPORTANT: Do NOT cache sensitive API calls. Use network-only to avoid stale auth.
+  if (pathname.startsWith('/api/auth') || pathname.startsWith('/api/stats')) {
     return { name: CACHE_STRATEGIES.NETWORK_ONLY, ttl: 0 };
+  }
+  
+  // Cache other API calls with short TTL
+  if (pathname.startsWith('/api/')) {
+    return { name: CACHE_STRATEGIES.STALE_WHILE_REVALIDATE, ttl: 60000 }; // 1 minute
   }
   
   if (pathname.startsWith('/assets/') || pathname.match(/\.(css|js|woff2?|ttf|eot)$/)) {

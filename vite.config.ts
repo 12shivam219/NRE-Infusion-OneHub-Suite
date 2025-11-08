@@ -26,7 +26,6 @@ export default defineConfig({
       target: 'es2020',
       supported: { 'top-level-await': true },
       treeShaking: true,
-      splitting: true,
       format: 'esm'
     }
   },
@@ -241,16 +240,20 @@ export default defineConfig({
   },
   server: {
     fs: {
-      strict: true,
-      deny: ["**/.*"],
+      strict: false,
+      allow: ['..']
     },
     hmr: {
-      port: 24678, // Different port for HMR to avoid conflicts
-      clientPort: 24678, // Ensure client connects to the correct port
+      protocol: 'ws',
+      port: 24678,
+      clientPort: 24678,
+      host: 'localhost'
     },
-    host: 'localhost',
-    strictPort: false,
+    host: true,
+    port: 5000,
+    strictPort: true,
     headers: {
+      'Access-Control-Allow-Origin': '*',
       'Content-Security-Policy': "default-src 'self' 'unsafe-inline' 'unsafe-eval' data: blob: ws: wss:; connect-src 'self' data: blob: ws: wss: http: https:; script-src 'self' 'unsafe-inline' 'unsafe-eval' data: blob:; style-src 'self' 'unsafe-inline' data: blob:;"
     }
   },

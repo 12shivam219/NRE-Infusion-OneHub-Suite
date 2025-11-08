@@ -128,6 +128,7 @@ export class DatabaseStorage implements IStorage {
 
   // Cache invalidation helpers
   private invalidateUserCache(userId: string) {
+    this._getUserCached.delete(userId);
     this._getResumesByUserIdCached.delete(userId);
     this._getUserStatsCached.delete(userId);
   }

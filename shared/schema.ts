@@ -775,19 +775,19 @@ export const insertRequirementSchema = z.object({
   createdBy: z.string(), // Required
 }).passthrough();
 
-// Interview schema - flexible
+// Interview schema - with strict validation for required fields
 export const insertInterviewSchema = z.object({
-  requirementId: z.any(), // Required in DB
-  interviewDate: z.any(), // Required in DB
-  interviewTime: z.any(), // Required in DB
-  timezone: z.any().optional(),
-  interviewType: z.any().optional(),
-  status: z.any().optional(),
-  consultantId: z.any(), // Required in DB
-  marketingPersonId: z.any().optional(),
-  vendorCompany: z.any().optional(),
-  interviewWith: z.any().optional(),
-  result: z.any().optional(),
+  requirementId: z.string().min(1, "Requirement is required"),
+  interviewDate: z.date().or(z.string().min(1, "Interview date is required")),
+  interviewTime: z.string().min(1, "Interview time is required"),
+  timezone: z.string().optional().default("EST"),
+  interviewType: z.string().optional(),
+  status: z.string().optional().default("Confirmed"),
+  consultantId: z.string().min(1, "Consultant is required"),
+  marketingPersonId: z.string().optional(),
+  vendorCompany: z.string().optional(),
+  interviewWith: z.string().optional(),
+  result: z.string().optional(),
   round: z.any().optional(),
   mode: z.any().optional(),
   meetingType: z.any().optional(),

@@ -728,13 +728,24 @@ Additional Information:
                             name="impName"
                             control={control}
                             render={({ field }) => (
-                              <EditableField
-                                label="IMP Name"
-                                value={field.value || ''}
-                                onSave={async (value) => {
-                                  field.onChange(value);
-                                }}
-                              />
+                              editMode ? (
+                                <EditableField
+                                  label="IMP Name"
+                                  value={field.value || ''}
+                                  onSave={async (value) => {
+                                    field.onChange(value);
+                                  }}
+                                />
+                              ) : (
+                                <div>
+                                  <Label htmlFor="impName">IMP Name</Label>
+                                  <Input
+                                    {...field}
+                                    value={field.value || ''}
+                                    placeholder="Enter IMP name"
+                                  />
+                                </div>
+                              )
                             )}
                           />
                         </div>
@@ -744,14 +755,26 @@ Additional Information:
                             name="clientWebsite"
                             control={control}
                             render={({ field }) => (
-                              <EditableField
-                                label="Client Website"
-                                value={field.value || ''}
-                                onSave={async (value) => {
-                                  field.onChange(value);
-                                }}
-                                type="url"
-                              />
+                              editMode ? (
+                                <EditableField
+                                  label="Client Website"
+                                  value={field.value || ''}
+                                  onSave={async (value) => {
+                                    field.onChange(value);
+                                  }}
+                                  type="url"
+                                />
+                              ) : (
+                                <div>
+                                  <Label htmlFor="clientWebsite">Client Website</Label>
+                                  <Input
+                                    {...field}
+                                    value={field.value || ''}
+                                    type="url"
+                                    placeholder="https://client-website.com"
+                                  />
+                                </div>
+                              )
                             )}
                           />
                         </div>
@@ -761,14 +784,26 @@ Additional Information:
                             name="impWebsite"
                             control={control}
                             render={({ field }) => (
-                              <EditableField
-                                label="IMP Website"
-                                value={field.value || ''}
-                                onSave={async (value) => {
-                                  field.onChange(value);
-                                }}
-                                type="url"
-                              />
+                              editMode ? (
+                                <EditableField
+                                  label="IMP Website"
+                                  value={field.value || ''}
+                                  onSave={async (value) => {
+                                    field.onChange(value);
+                                  }}
+                                  type="url"
+                                />
+                              ) : (
+                                <div>
+                                  <Label htmlFor="impWebsite">IMP Website</Label>
+                                  <Input
+                                    {...field}
+                                    value={field.value || ''}
+                                    type="url"
+                                    placeholder="https://imp-website.com"
+                                  />
+                                </div>
+                              )
                             )}
                           />
                         </div>
@@ -789,13 +824,24 @@ Additional Information:
                             name="vendorCompany"
                             control={control}
                             render={({ field }) => (
-                              <EditableField
-                                label="Vendor Company"
-                                value={field.value || ''}
-                                onSave={async (value) => {
-                                  field.onChange(value);
-                                }}
-                              />
+                              editMode ? (
+                                <EditableField
+                                  label="Vendor Company"
+                                  value={field.value || ''}
+                                  onSave={async (value) => {
+                                    field.onChange(value);
+                                  }}
+                                />
+                              ) : (
+                                <div>
+                                  <Label htmlFor="vendorCompany">Vendor Company</Label>
+                                  <Input
+                                    {...field}
+                                    value={field.value || ''}
+                                    placeholder="Enter vendor company name"
+                                  />
+                                </div>
+                              )
                             )}
                           />
                         </div>
@@ -805,14 +851,26 @@ Additional Information:
                             name="vendorWebsite"
                             control={control}
                             render={({ field }) => (
-                              <EditableField
-                                label="Vendor Website"
-                                value={field.value || ''}
-                                onSave={async (value) => {
-                                  field.onChange(value);
-                                }}
-                                type="url"
-                              />
+                              editMode ? (
+                                <EditableField
+                                  label="Vendor Website"
+                                  value={field.value || ''}
+                                  onSave={async (value) => {
+                                    field.onChange(value);
+                                  }}
+                                  type="url"
+                                />
+                              ) : (
+                                <div>
+                                  <Label htmlFor="vendorWebsite">Vendor Website</Label>
+                                  <Input
+                                    {...field}
+                                    value={field.value || ''}
+                                    type="url"
+                                    placeholder="https://vendor-website.com"
+                                  />
+                                </div>
+                              )
                             )}
                           />
                         </div>
@@ -822,13 +880,24 @@ Additional Information:
                             name="vendorPersonName"
                             control={control}
                             render={({ field }) => (
-                              <EditableField
-                                label="Vendor Contact Person"
-                                value={field.value || ''}
-                                onSave={async (value) => {
-                                  field.onChange(value);
-                                }}
-                              />
+                              editMode ? (
+                                <EditableField
+                                  label="Vendor Contact Person"
+                                  value={field.value || ''}
+                                  onSave={async (value) => {
+                                    field.onChange(value);
+                                  }}
+                                />
+                              ) : (
+                                <div>
+                                  <Label htmlFor="vendorPersonName">Vendor Contact Person</Label>
+                                  <Input
+                                    {...field}
+                                    value={field.value || ''}
+                                    placeholder="Contact person name"
+                                  />
+                                </div>
+                              )
                             )}
                           />
                         </div>
@@ -838,15 +907,31 @@ Additional Information:
                             name="vendorPhone"
                             control={control}
                             render={({ field }) => (
-                              <EditableField
-                                label="Vendor Phone"
-                                value={field.value || ''}
-                                onSave={async (value) => {
-                                  const cleanValue = value.replace(/[^\d\s+()-.,ext]/gi, '').trim();
-                                  field.onChange(cleanValue);
-                                }}
-                                type="tel"
-                              />
+                              editMode ? (
+                                <EditableField
+                                  label="Vendor Phone"
+                                  value={field.value || ''}
+                                  onSave={async (value) => {
+                                    const cleanValue = value.replace(/[^\d\s+()-.,ext]/gi, '').trim();
+                                    field.onChange(cleanValue);
+                                  }}
+                                  type="tel"
+                                />
+                              ) : (
+                                <div>
+                                  <Label htmlFor="vendorPhone">Vendor Phone</Label>
+                                  <Input
+                                    {...field}
+                                    value={field.value || ''}
+                                    type="tel"
+                                    placeholder="Phone number"
+                                    onChange={(e) => {
+                                      const cleanValue = e.target.value.replace(/[^\d\s+()-.,ext]/gi, '').trim();
+                                      field.onChange(cleanValue);
+                                    }}
+                                  />
+                                </div>
+                              )
                             )}
                           />
                         </div>
@@ -856,14 +941,29 @@ Additional Information:
                             name="vendorEmail"
                             control={control}
                             render={({ field }) => (
-                              <EditableField
-                                label="Vendor Email"
-                                value={field.value || ''}
-                                onSave={async (value) => {
-                                  field.onChange(value);
-                                }}
-                                type="email"
-                              />
+                              editMode ? (
+                                <EditableField
+                                  label="Vendor Email"
+                                  value={field.value || ''}
+                                  onSave={async (value) => {
+                                    field.onChange(value);
+                                  }}
+                                  type="email"
+                                />
+                              ) : (
+                                <div>
+                                  <Label htmlFor="vendorEmail">Vendor Email</Label>
+                                  <FieldWrapper error={getFieldError('vendorEmail')}>
+                                    <Input
+                                      {...field}
+                                      value={field.value || ''}
+                                      type="email"
+                                      placeholder="vendor@company.com"
+                                      className={errors.vendorEmail ? 'border-red-500' : ''}
+                                    />
+                                  </FieldWrapper>
+                                </div>
+                              )
                             )}
                           />
                         </div>

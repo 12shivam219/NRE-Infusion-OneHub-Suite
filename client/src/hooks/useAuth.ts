@@ -31,7 +31,7 @@ export function useAuth() {
     queryFn: async () => {
       try {
         // Record that we're making an auth request
-        authGlobalState.recordAuthRequest();
+        authGlobalState.recordAuthRequest('/api/auth/user');
 
         const response = await fetch("/api/auth/user", {
           credentials: "include",

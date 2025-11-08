@@ -251,8 +251,13 @@ export function sanitizeRequirementData(data: any): any {
     
     return sanitized;
   } catch (error) {
-    console.error('Error sanitizing requirement data:', error);
-    return {};
+    // Import logger dynamically to avoid circular dependencies
+    import('../utils/logger').then(({ logger }) => {
+      logger.error({ error }, 'Error sanitizing requirement data');
+    }).catch(() => {
+      console.error('Error sanitizing requirement data:', error);
+    });
+    throw new Error('Failed to sanitize requirement data: ' + (error instanceof Error ? error.message : 'Unknown error'));
   }
 }
 
@@ -260,14 +265,48 @@ export function sanitizeRequirementData(data: any): any {
  * Validate and sanitize interview data
  */
 export function sanitizeInterviewData(data: any): any {
-  // Pass the raw data through with minimal sanitization
-  const sanitized = { ...data };
-  
-  // Only sanitize mandatory fields
-  if (sanitized.requirementId) sanitized.requirementId = String(sanitized.requirementId).trim();
-  if (sanitized.consultantId) sanitized.consultantId = String(sanitized.consultantId).trim();
-  if (sanitized.interviewDate) sanitized.interviewDate = String(sanitized.interviewDate).trim();
-  if (sanitized.interviewTime) sanitized.interviewTime = String(sanitized.interviewTime).trim();
-  
-  return sanitized;
+  try {
+    const sanitized = { ...data };
+    
+    // Sanitize mandatory fields
+    if (sanitized.requirementId) {
+      sanitized.requirementId = String(sanitized.requirementId).trim();
+    }
+    
+    if (sanitized.consultantId) {
+      sanitized.consultantId = String(sanitized.consultantId).trim();
+    }
+    
+    // Handle interview date
+    if (sanitized.interviewDate) {
+      const date = new Date(sanitized.interviewDate);
+      if (isNaN(date.getTime())) {
+        throw new Error('Invalid interview date format');
+      }
+      sanitized.interviewDate = date.toISOString();
+    }
+    
+    if (sanitized.interviewTime) {
+      sanitized.interviewTime = String(sanitized.interviewTime).trim();
+    }
+    
+    // Set defaults for optional fields
+    if (!sanitized.timezone) {
+      sanitized.timezone = 'EST';
+    }
+    
+    if (!sanitized.status) {
+      sanitized.status = 'Confirmed';
+    }
+    
+    return sanitized;
+  } catch (error) {
+    // Import logger dynamically to avoid circular dependencies
+    import('../utils/logger').then(({ logger }) => {
+      logger.error({ error, data }, 'Error sanitizing interview data');
+    }).catch(() => {
+      console.error('Error sanitizing interview data:', error);
+    });
+    throw new Error('Failed to sanitize interview data: ' + (error instanceof Error ? error.message : 'Unknown error'));
+  }
 }
