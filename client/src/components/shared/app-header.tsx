@@ -58,18 +58,21 @@ export function AppHeader({ currentPage = 'dashboard' }: AppHeaderProps) {
       }`}
       role="banner"
     >
-      <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-        <div className="flex justify-between items-center h-16">
+      <div className="max-w-7xl mx-auto px-3 sm:px-4 md:px-6 lg:px-8">
+        <div className="flex justify-between items-center min-h-[4rem] py-2">
           <button
             onClick={() => navigate('/dashboard')}
-            className="flex items-center space-x-3 hover:opacity-80 transition-opacity focus:outline-none focus:ring-2 focus:ring-primary focus:ring-offset-2 rounded-lg p-1"
+            className="flex items-center gap-2 sm:gap-3 hover:opacity-80 transition-opacity focus:outline-none focus:ring-2 focus:ring-primary focus:ring-offset-2 rounded-lg p-1"
             aria-label="Go to Dashboard"
           >
-            <div className="h-10 w-10 bg-gradient-to-br from-primary to-accent rounded-xl flex items-center justify-center shadow-lg">
-              <FileText className="text-white" size={20} />
+            <div className="h-8 w-8 sm:h-10 sm:w-10 bg-gradient-to-br from-primary to-accent rounded-xl flex items-center justify-center shadow-lg">
+              <FileText className="text-white w-4 h-4 sm:w-5 sm:h-5" />
             </div>
-            <h1 className="text-xl font-bold text-foreground tracking-tight hidden sm:block">NRE OneHub Suite</h1>
-            <h1 className="text-lg font-bold text-foreground tracking-tight sm:hidden">OneHub</h1>
+            <h1 className="text-lg sm:text-xl font-bold text-foreground tracking-tight hidden xs:block">
+              <span className="hidden sm:inline">NRE OneHub Suite</span>
+              <span className="sm:hidden">OneHub Suite</span>
+            </h1>
+            <h1 className="text-base font-bold text-foreground tracking-tight xs:hidden">OH</h1>
           </button>
 
           {/* Mobile menu button */}
@@ -85,7 +88,7 @@ export function AppHeader({ currentPage = 'dashboard' }: AppHeaderProps) {
 
           {/* Desktop Navigation */}
           <nav
-            className="hidden md:flex items-center space-x-4"
+            className="hidden md:flex items-center gap-2 lg:gap-4"
             role="navigation"
             aria-label="Main navigation"
           >
@@ -97,16 +100,16 @@ export function AppHeader({ currentPage = 'dashboard' }: AppHeaderProps) {
                     variant={currentPage === 'email' ? 'default' : 'outline'}
                     size="sm"
                     onClick={() => navigate('/email')}
-                    className={`transition-all duration-200 ${
+                    className={`transition-all duration-200 h-8 px-2 md:px-3 ${
                       currentPage === 'email'
                         ? 'bg-red-600 text-white hover:bg-red-700'
-                        : 'bg-red-50 border-red-200 text-red-700 hover:bg-red-100'
+                        : 'bg-red-50/80 border-red-200 text-red-700 hover:bg-red-100'
                     }`}
                     data-testid="button-email"
                     aria-label="Navigate to email page"
                   >
-                    <Mail size={16} className="mr-1" />
-                    <span className="hidden lg:inline">Email</span>
+                    <Mail className="h-4 w-4 md:mr-1.5" />
+                    <span className="hidden md:inline text-sm">Email</span>
                   </Button>
                 </TooltipTrigger>
                 <TooltipContent side="bottom">
@@ -203,8 +206,8 @@ export function AppHeader({ currentPage = 'dashboard' }: AppHeaderProps) {
             </Button>
 
             <div className="flex items-center space-x-3">
-              <div className="h-8 w-8 bg-primary rounded-full flex items-center justify-center">
-                <span className="text-sm font-medium text-primary-foreground">
+              <div className="h-7 w-7 sm:h-8 sm:w-8 bg-primary rounded-full flex items-center justify-center">
+                <span className="text-xs sm:text-sm font-medium text-primary-foreground">
                   {(user as ClientUser)?.pseudoName?.[0] ||
                     (user as ClientUser)?.firstName?.[0] ||
                     (user as ClientUser)?.email?.[0] ||
@@ -212,7 +215,7 @@ export function AppHeader({ currentPage = 'dashboard' }: AppHeaderProps) {
                 </span>
               </div>
               <span
-                className="text-sm font-medium text-foreground hidden lg:inline-block"
+                className="text-xs sm:text-sm font-medium text-foreground hidden md:inline-block max-w-[120px] lg:max-w-[200px] truncate"
                 data-testid="text-username"
               >
                 {(user as ClientUser)?.pseudoName ||
@@ -225,7 +228,7 @@ export function AppHeader({ currentPage = 'dashboard' }: AppHeaderProps) {
                 size="sm"
                 onClick={handleLogout}
                 data-testid="button-logout"
-                className="hover:bg-red-50 hover:text-red-600 hover:border-red-200 transition-colors"
+                className="h-8 px-2 md:px-3 hover:bg-red-50 hover:text-red-600 hover:border-red-200 transition-colors"
               >
                 <LogOut size={16} className="mr-1.5" />
                 <span className="hidden lg:inline-block">Logout</span>
@@ -236,8 +239,8 @@ export function AppHeader({ currentPage = 'dashboard' }: AppHeaderProps) {
 
         {/* Mobile Navigation Menu */}
         {isMobileMenuOpen && (
-          <div className="md:hidden border-t border-border bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/60">
-            <div className="px-4 py-4 space-y-3">
+          <div className="md:hidden fixed inset-x-0 top-[4rem] border-t border-border bg-background/95 backdrop-blur-md supports-[backdrop-filter]:bg-background/60 shadow-lg z-40">
+            <div className="px-3 sm:px-4 py-3 space-y-2 max-h-[calc(100vh-4rem)] overflow-y-auto">
               {/* Mobile navigation items */}
               {(user?.role === 'marketing' || user?.role === 'admin') && (
                 <Button
