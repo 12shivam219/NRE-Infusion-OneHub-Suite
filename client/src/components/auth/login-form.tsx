@@ -65,9 +65,18 @@ export function LoginForm({ onForgotPassword, onSuccess }: LoginFormProps = {}) 
       return;
     }
 
+    // Clear any existing auth state before attempting login
+    localStorage.removeItem('justLoggedOut');
+    localStorage.removeItem('authLoopDetected');
+    localStorage.removeItem('authErrorHandledAt');
+    localStorage.removeItem('lastAuthRedirect');
+    localStorage.removeItem('authLastRedirectAt');
+    localStorage.removeItem('lastPrivateRedirect');
+    queryClient.removeQueries({ queryKey: ["/api/auth/user"] });
+
     setIsLoading(true);
     try {
-      // Get CSRF token
+      // Get CSRF token and ensure it's fresh
       const csrfToken = getCsrfToken();
 
       const response = await fetch('/api/auth/login', {
@@ -75,9 +84,13 @@ export function LoginForm({ onForgotPassword, onSuccess }: LoginFormProps = {}) 
         headers: { 
           'Content-Type': 'application/json',
           'X-CSRF-Token': csrfToken || '',
+          'X-Requested-With': 'XMLHttpRequest',
         },
         credentials: 'include', // Important for handling cookies
-        body: JSON.stringify(data),
+        body: JSON.stringify({
+          ...data,
+          email: data.email.toLowerCase().trim(),
+        }),
       });
 
       if (!response.ok) {
@@ -105,21 +118,16 @@ export function LoginForm({ onForgotPassword, onSuccess }: LoginFormProps = {}) 
       // Clear attempt count on successful login
       setAttemptCount(0);
 
-      // Hint the app that a fresh login just happened (used by useAuth retry heuristics)
+      // Update auth state after successful login
       try {
-        // IMPORTANT: Clear justLoggedOut flag so auth query can run
-        localStorage.removeItem('justLoggedOut');
+        // Set fresh timestamps
+        const now = Date.now().toString();
+        localStorage.setItem('lastActiveTime', now);
+        localStorage.setItem('rcp_loginAt', now);
         
-        localStorage.setItem('lastActiveTime', Date.now().toString());
-        // Record the login timestamp for auto-logout enforcement
-        localStorage.setItem('rcp_loginAt', Date.now().toString());
-        localStorage.removeItem('authErrorHandledAt');
-        localStorage.removeItem('authLastRedirectAt');
-        localStorage.removeItem('authLoopDetected');
-        localStorage.removeItem('lastAuthLoopReset');
-        
-        // Force refresh the auth query to pick up the new authentication state
-        queryClient.invalidateQueries({ queryKey: ["/api/auth/user"] });
+        // Ensure auth query is fresh
+        await queryClient.invalidateQueries({ queryKey: ["/api/auth/user"] });
+        await queryClient.refetchQueries({ queryKey: ["/api/auth/user"] });
       } catch (e) {}
 
       // Get any saved redirect URL
@@ -147,11 +155,9 @@ export function LoginForm({ onForgotPassword, onSuccess }: LoginFormProps = {}) 
       const publicPages = ['/', '/privacy'];
       const targetUrl = (redirectUrl && publicPages.includes(redirectUrl)) ? redirectUrl : '/dashboard';
       
-      // Use a small delay to ensure the auth state is updated before redirect
-      setTimeout(() => {
-        // Force a full page reload to ensure proper authentication state
-        window.location.href = targetUrl;
-      }, 100);
+      // Immediately update auth state and redirect
+      await queryClient.invalidateQueries({ queryKey: ["/api/auth/user"] });
+      window.location.href = targetUrl;
     } catch (error: any) {
       console.error('Login error caught:', error);
       setAttemptCount((prev) => prev + 1);

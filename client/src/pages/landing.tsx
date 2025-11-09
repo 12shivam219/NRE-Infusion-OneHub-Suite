@@ -67,7 +67,14 @@ export default function Landing() {
 
             <div className="flex gap-3">
               <Button
-                onClick={() => setAuthDialog('login')}
+                onClick={() => {
+                  // Clear any existing auth state
+                  localStorage.removeItem('justLoggedOut');
+                  localStorage.removeItem('authLoopDetected');
+                  localStorage.removeItem('authErrorHandledAt');
+                  localStorage.removeItem('lastAuthRedirect');
+                  setAuthDialog('login');
+                }}
                 variant="ghost"
                 className="smooth-hover"
                 data-testid="button-login"
@@ -203,6 +210,29 @@ export default function Landing() {
 
       {/* CTA Section */}
       <CTASection />
+
+      {/* Auth Dialog */}
+      <Dialog open={!!authDialog} onOpenChange={(open) => !open && setAuthDialog(null)}>
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle>
+              {authDialog === 'login' && 'Sign In'}
+              {authDialog === 'register' && 'Create Account'}
+              {authDialog === 'forgot-password' && 'Reset Password'}
+            </DialogTitle>
+          </DialogHeader>
+          {authDialog === 'login' && (
+            <LoginForm
+              onForgotPassword={() => setAuthDialog('forgot-password')}
+              onSuccess={() => setAuthDialog(null)}
+            />
+          )}
+          {authDialog === 'register' && <RegisterForm onSuccess={() => setAuthDialog('login')} />}
+          {authDialog === 'forgot-password' && (
+            <ForgotPasswordForm onBackToLogin={() => setAuthDialog('login')} />
+          )}
+        </DialogContent>
+      </Dialog>
 
       {/* Footer */}
       <footer className="bg-card border-t border-border py-8 px-4 sm:px-6 lg:px-8">

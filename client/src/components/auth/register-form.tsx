@@ -21,6 +21,10 @@ import {
 import { Checkbox } from '@/components/ui/checkbox';
 import { useQueryClient } from '@tanstack/react-query';
 
+interface RegisterFormProps {
+  onSuccess?: () => void;
+}
+
 const MAX_EMAIL_LENGTH = 255;
 const MIN_PASSWORD_LENGTH = 8;
 const MAX_PASSWORD_LENGTH = 128;
@@ -63,7 +67,7 @@ const formSchema = z
 
 type FormData = z.infer<typeof formSchema>;
 
-export function RegisterForm() {
+export function RegisterForm({ onSuccess }: RegisterFormProps) {
   const [isLoading, setIsLoading] = useState(false);
   const [showPassword, setShowPassword] = useState(false);
   const [showConfirmPassword, setShowConfirmPassword] = useState(false);
@@ -123,6 +127,9 @@ export function RegisterForm() {
           'We sent a verification link to your email. Please verify to enable login. Check spam/junk as well.',
         duration: 6000,
       });
+
+      // Call onSuccess callback if provided
+      onSuccess?.();
 
       // Navigate to verification page with token in URL
       const token = encodeURIComponent(responseData.verificationToken);

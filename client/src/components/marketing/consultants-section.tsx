@@ -144,9 +144,10 @@ function ConsultantsSection() {
   });
 
   const consultants = consultantsResponse?.data || [];
-  const totalItems = consultantsResponse?.pagination?.total || consultants.length;
+  // FIX: Use the total count from the API response for accurate total items count
+  const totalItems = consultantsResponse?.pagination?.total || consultants.length; 
 
-  // Create consultant mutation with optimistic updates
+  // Create consultant mutation (Removed brittle optimistic updates)
   const createMutation = useMutation({
     mutationFn: async (data: { consultant: any; projects: any[] }) => {
       const response = await apiRequest('POST', '/api/marketing/consultants', data);
@@ -156,36 +157,8 @@ function ConsultantsSection() {
       }
       return response.json();
     },
-    onMutate: async (newConsultant) => {
-      // Cancel outgoing refetches
-      await queryClient.cancelQueries({ queryKey: ['/api/marketing/consultants'] });
-
-      // Snapshot previous value
-      const previousData = queryClient.getQueryData(['/api/marketing/consultants']);
-
-      // Optimistically update with placeholder
-      queryClient.setQueryData(['/api/marketing/consultants'], (old: any) => {
-        if (!old) return old;
-        const newData = {
-          id: 'temp-' + Date.now(),
-          ...newConsultant.consultant,
-          projects: newConsultant.projects || [],
-          createdAt: new Date(),
-          updatedAt: new Date(),
-        };
-        return {
-          data: [newData, ...(old.data || old)],
-          pagination: old.pagination,
-        };
-      });
-
-      return { previousData };
-    },
-    onError: (error: Error, newConsultant, context) => {
-      // Rollback on error
-      if (context?.previousData) {
-        queryClient.setQueryData(['/api/marketing/consultants'], context.previousData);
-      }
+    // Removed onMutate and onError rollback logic for stability with pagination
+    onError: (error: Error) => { 
       toast.error(error.message || 'Failed to create consultant');
     },
     onSuccess: async () => {
@@ -195,7 +168,7 @@ function ConsultantsSection() {
       await refreshCSRFToken();
     },
     onSettled: () => {
-      // Refetch specific page only to avoid loading all consultants
+      // Invalidate the current page's query to trigger a background refetch
       queryClient.invalidateQueries({
         queryKey: [
           '/api/marketing/consultants',
@@ -208,7 +181,7 @@ function ConsultantsSection() {
     },
   });
 
-  // Update consultant mutation with optimistic updates
+  // Update consultant mutation (Removed brittle optimistic updates)
   const updateMutation = useMutation({
     mutationFn: async ({
       id,
@@ -224,31 +197,8 @@ function ConsultantsSection() {
       }
       return response.json();
     },
-    onMutate: async ({ id, data }) => {
-      await queryClient.cancelQueries({ queryKey: ['/api/marketing/consultants'] });
-      const previousData = queryClient.getQueryData(['/api/marketing/consultants']);
-
-      // Optimistically update
-      queryClient.setQueryData(['/api/marketing/consultants'], (old: any) => {
-        if (!old) return old;
-        const dataArray = old.data || old;
-        const updatedData = dataArray.map((consultant: Consultant) =>
-          consultant.id === id
-            ? { ...consultant, ...data.consultant, projects: data.projects || consultant.projects }
-            : consultant
-        );
-        return {
-          data: updatedData,
-          pagination: old.pagination,
-        };
-      });
-
-      return { previousData };
-    },
-    onError: (error: Error, variables, context) => {
-      if (context?.previousData) {
-        queryClient.setQueryData(['/api/marketing/consultants'], context.previousData);
-      }
+    // Removed onMutate and onError rollback logic for stability with pagination
+    onError: (error: Error) => {
       toast.error(error.message || 'Failed to update consultant');
     },
     onSuccess: async () => {
@@ -258,11 +208,12 @@ function ConsultantsSection() {
       await refreshCSRFToken();
     },
     onSettled: () => {
+      // Invalidate all consultant queries to ensure view/list refreshes correctly
       queryClient.invalidateQueries({ queryKey: ['/api/marketing/consultants'] });
     },
   });
 
-  // Delete consultant mutation with optimistic updates
+  // Delete consultant mutation (Removed brittle optimistic updates)
   const deleteMutation = useMutation({
     mutationFn: async (id: string) => {
       const response = await apiRequest('DELETE', `/api/marketing/consultants/${id}`);
@@ -272,32 +223,13 @@ function ConsultantsSection() {
       }
       return response.json();
     },
-    onMutate: async (id) => {
-      await queryClient.cancelQueries({ queryKey: ['/api/marketing/consultants'] });
-      const previousData = queryClient.getQueryData(['/api/marketing/consultants']);
-
-      // Optimistically remove from list
-      queryClient.setQueryData(['/api/marketing/consultants'], (old: any) => {
-        if (!old) return old;
-        const dataArray = old.data || old;
-        const filteredData = dataArray.filter((consultant: Consultant) => consultant.id !== id);
-        return {
-          data: filteredData,
-          pagination: old.pagination,
-        };
-      });
-
-      return { previousData };
-    },
-    onError: (error: Error, id, context) => {
-      if (context?.previousData) {
-        queryClient.setQueryData(['/api/marketing/consultants'], context.previousData);
-      }
-      toast.error(error.message || 'Failed to delete consultant');
-    },
+    // Removed onMutate and onError rollback logic for stability
     onSuccess: () => {
       toast.success('Consultant deleted successfully!');
       setDeleteConfirm(null);
+    },
+    onError: (error: Error) => {
+      toast.error(error.message || 'Failed to delete consultant');
     },
     onSettled: () => {
       queryClient.invalidateQueries({ queryKey: ['/api/marketing/consultants'] });
@@ -344,18 +276,12 @@ function ConsultantsSection() {
 
   const handleDeleteConsultant = async (id: string) => {
     setDeleteConfirm(id);
-    try {
-      await deleteMutation.mutateAsync(id);
-      setDeleteConfirm(null);
-    } catch (error) {
-      // Error handling is done in the mutation
-      setDeleteConfirm(null);
-    }
+    // Let the mutation handle the actual deletion and success/error reporting
   };
 
   const confirmDelete = () => {
     if (deleteConfirm) {
-      handleDeleteConsultant(deleteConfirm);
+      deleteMutation.mutate(deleteConfirm);
     }
   };
 
@@ -453,7 +379,8 @@ function ConsultantsSection() {
             <div className="flex items-center justify-between">
               <div>
                 <p className="text-sm text-slate-600">Total</p>
-                <p className="text-2xl font-bold text-slate-900">{consultants.length}</p>
+                {/* FIX: Use totalItems for the overall count, not just the current page's length */}
+                <p className="text-2xl font-bold text-slate-900">{totalItems}</p>
               </div>
               <div className="h-10 w-10 bg-blue-100 rounded-lg flex items-center justify-center">
                 <Users className="h-5 w-5 text-blue-600" />

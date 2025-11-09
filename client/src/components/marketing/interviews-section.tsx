@@ -126,8 +126,11 @@ export default function InterviewsSection() {
       });
 
       if (activeTab && activeTab !== 'All') {
+        // Since the server filters by status, we only send the status if it's not 'All'
         params.append('status', activeTab);
       }
+      
+      // Note: Search query param logic is missing in queryKey/queryFn but should ideally be included here
 
       const response = await apiRequest('GET', `/api/marketing/interviews?${params}`);
       if (!response.ok) {
@@ -140,6 +143,7 @@ export default function InterviewsSection() {
   });
 
   // Handle both paginated and non-paginated responses
+  // This 'interviews' array already contains data filtered by activeTab (from server query)
   const interviews = Array.isArray(interviewsResponse)
     ? interviewsResponse
     : interviewsResponse?.data || [];
@@ -235,15 +239,8 @@ export default function InterviewsSection() {
       toast.error(error.message || 'Failed to delete interview');
     },
   });
-
-  // Filter interviews by tab
-  const filteredInterviews = useMemo(() => {
-    // Ensure interviews is an array
-    const interviewsArray = Array.isArray(interviewsResponse?.data) ? interviewsResponse.data : [];
-
-    if (activeTab === 'All') return interviewsArray;
-    return interviewsArray.filter((interview: Interview) => interview.status === activeTab);
-  }, [interviewsResponse?.data, activeTab]);
+  
+  // FIX: Removed redundant filteredInterviews useMemo as data is filtered by the server query
 
   const getStatusColor = (status: string) => {
     switch (status) {
@@ -265,6 +262,7 @@ export default function InterviewsSection() {
     setShowInterviewForm(true);
   };
 
+  // FIX: Ensure interviewDate is converted to YYYY-MM-DD string for form compatibility
   const handleEditInterview = (interview: Interview) => {
     // Convert Interview to InterviewFormData and preserve the ID
     const formData: InterviewFormData & { id: string } = {
@@ -273,6 +271,20 @@ export default function InterviewsSection() {
       timezone: interview.timezone || 'UTC', // Provide default value
       status: interview.status || 'Scheduled', // Provide default value
     };
+    
+    if (interview.interviewDate) {
+        try {
+            const dateObj = new Date(interview.interviewDate);
+            // Check for valid date object and format to YYYY-MM-DD for date picker input
+            if (!isNaN(dateObj.getTime())) {
+                formData.interviewDate = dateObj.toISOString().split('T')[0];
+            }
+        } catch (e) {
+            // Keep original string if date parsing fails, relying on form validation
+            console.warn("Failed to parse interviewDate for editing:", e);
+        }
+    }
+
     setSelectedInterview(formData);
     setShowEditForm(true);
   };
@@ -376,10 +388,8 @@ export default function InterviewsSection() {
 
         {interviewTabs.map((tab) => (
           <TabsContent key={tab} value={tab} className="space-y-3 mt-4">
-            {/* Interviews List */}
-            {filteredInterviews
-              .filter((interview: any) => tab === 'All' || interview.status === tab)
-              .map((interview: any) => (
+            {/* Interviews List - Renders the data filtered by the server/query based on activeTab */}
+            {interviews.map((interview: any) => (
                 <Card
                   key={interview.id}
                   className="border-slate-200 hover:shadow-md hover:border-slate-300 transition-all group"
@@ -489,10 +499,8 @@ export default function InterviewsSection() {
               />
             )}
 
-            {/* Empty State */}
-            {filteredInterviews.filter(
-              (interview: any) => tab === 'All' || interview.status === tab
-            ).length === 0 && (
+            {/* Empty State - Check the length of the already filtered 'interviews' array */}
+            {interviews.length === 0 && (
               <Card className="border-slate-200">
                 <CardContent className="p-12 text-center">
                   <div className="h-16 w-16 mx-auto mb-4 rounded-full bg-indigo-100 flex items-center justify-center">

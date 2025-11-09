@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useCallback, useEffect } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { apiRequest } from '@/lib/queryClient';
 import { Button } from '@/components/ui/button';
@@ -6,7 +6,6 @@ import { Input } from '@/components/ui/input';
 import { Textarea } from '@/components/ui/textarea';
 import { Label } from '@/components/ui/label';
 import { Badge } from '@/components/ui/badge';
-import { ScrollArea } from '@/components/ui/scroll-area';
 import {
   Dialog,
   DialogContent,
@@ -25,11 +24,8 @@ import {
   Paperclip,
   Send,
   X,
-  Plus,
   Minimize2,
   Maximize2,
-  ChevronDown,
-  ChevronRight,
 } from 'lucide-react';
 import { toast } from 'sonner';
 import { cn } from '@/lib/utils';
@@ -56,6 +52,25 @@ interface ComposeDialogProps {
   mode?: 'compose' | 'reply' | 'reply-all' | 'forward';
 }
 
+// Helper to convert plain text body to structured HTML paragraphs
+const convertTextToHtml = (text: string): string => {
+  if (!text) return '';
+  // Split the text by double newlines to find paragraphs
+  const paragraphs = text.split(/\n\s*\n/g).map(p => p.trim()).filter(p => p.length > 0);
+  
+  if (paragraphs.length === 0) return '';
+
+  // Within each paragraph, replace single newlines with <br>
+  const htmlContent = paragraphs.map(p => 
+    `<p style="margin-top: 0; margin-bottom: 1em;">${p.replace(/\n/g, '<br>')}</p>`
+  ).join('');
+
+  return htmlContent;
+};
+
+// Minimum length required by server
+const MIN_BODY_LENGTH = 10;
+
 export default function ComposeDialog({ 
   open, 
   onOpenChange, 
@@ -67,8 +82,9 @@ export default function ComposeDialog({
       ? [replyTo?.fromEmail || ''] 
       : []
   );
+  // FIX: For reply-all, include original recipients excluding the current user's email
   const [cc, setCc] = useState<string[]>(
-    mode === 'reply-all' ? (replyTo?.toEmails || []) : []
+    mode === 'reply-all' ? (replyTo?.ccEmails || []) : []
   );
   const [bcc, setBcc] = useState<string[]>([]);
   const [subject, setSubject] = useState(
@@ -111,25 +127,30 @@ export default function ComposeDialog({
   });
 
   // Set default account when accounts are loaded
-  React.useEffect(() => {
+  useEffect(() => {
     if (emailAccounts.length > 0 && !selectedAccount) {
       const defaultAccount = emailAccounts.find(acc => acc.isDefault) || emailAccounts[0];
-      setSelectedAccount(defaultAccount.id);
+      if (defaultAccount) {
+        setSelectedAccount(defaultAccount.id);
+      }
     }
-  }, [emailAccounts, selectedAccount]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [emailAccounts]);
 
   // Send email mutation
   const sendMutation = useMutation({
-    mutationFn: async (emailData: any) => {
+    mutationFn: async () => {
+      // FIX: Use centralized apiRequest for CSRF handling
       const formData = new FormData();
       
-      // Add email data (append multiple values for array fields)
+      // Add email data
       to.forEach((addr) => formData.append('to', addr));
       cc.forEach((addr) => formData.append('cc', addr));
       bcc.forEach((addr) => formData.append('bcc', addr));
       formData.append('subject', subject);
       formData.append('textBody', body);
-      formData.append('htmlBody', body.replace(/\n/g, '<br>'));
+      // FIX: Use the new conversion helper for structured HTML
+      formData.append('htmlBody', convertTextToHtml(body)); 
       formData.append('accountId', selectedAccount);
       
       if (replyTo?.threadId) {
@@ -141,23 +162,12 @@ export default function ComposeDialog({
         formData.append('attachments', file);
       });
 
-      // CSRF token for state-changing request
-      const csrfToken = document.cookie
-        .split('; ')
-        .find(r => r.startsWith('csrf_token='))
-        ?.split('=')[1] || '';
-
-      const response = await fetch('/api/marketing/emails/send', {
-        method: 'POST',
-        body: formData,
-        credentials: 'include',
-        headers: {
-          'X-CSRF-Token': csrfToken,
-        },
-      });
+      // FIX: Replace manual fetch with apiRequest utility
+      const response = await apiRequest('POST', '/api/marketing/emails/send', formData);
 
       if (!response.ok) {
-        throw new Error('Failed to send email');
+        const error = await response.json();
+        throw new Error(error.error || error.message || 'Failed to send email');
       }
 
       return response.json();
@@ -175,15 +185,14 @@ export default function ComposeDialog({
       setBody('');
       setAttachments([]);
     },
-    onError: (error: any) => {
-      const errorMessage = error?.message || 'Failed to send email';
+    onError: (error: Error) => {
+      const errorMessage = error.message;
       
-      // Check if it's a rate limit error
-      if (errorMessage.includes('Rate limit') || errorMessage.includes('limit reached')) {
+      if (errorMessage.includes('Rate limit')) {
         setRateLimitError(errorMessage);
         toast.error('Rate limit exceeded. Please wait before sending more emails.', { duration: 5000 });
-      } else if (errorMessage.includes('spam score')) {
-        toast.error('Email blocked due to high spam score. Please review and fix the issues.', { duration: 5000 });
+      } else if (errorMessage.includes('spam score') || errorMessage.includes('Email blocked')) {
+        toast.error(errorMessage, { duration: 5000 });
       } else {
         toast.error(errorMessage, { duration: 4000 });
       }
@@ -191,9 +200,14 @@ export default function ComposeDialog({
     },
   });
 
-  // Check spam score before sending
+  // Check spam score deliverability
   const checkSpamScore = async () => {
-    if (!selectedAccount || !subject || !body) return;
+    // Only check if all required fields are present and body meets minimum length
+    if (!selectedAccount || !subject || body.trim().length < MIN_BODY_LENGTH) {
+      setSpamScore(null);
+      setSpamWarnings([]);
+      return;
+    }
 
     setCheckingSpam(true);
     try {
@@ -202,7 +216,8 @@ export default function ComposeDialog({
 
       const response = await apiRequest('POST', '/api/marketing/emails/check-deliverability', {
         subject,
-        htmlBody: body.replace(/\n/g, '<br>'),
+        // FIX: Pass the structured HTML body to the checker
+        htmlBody: convertTextToHtml(body), 
         textBody: body,
         fromEmail: account.emailAddress
       });
@@ -212,8 +227,11 @@ export default function ComposeDialog({
         setSpamScore(data.spamScore);
         setSpamWarnings(data.issues || []);
         
-        if (data.spamScore >= 5) {
-          toast.warning(`Spam score: ${data.spamScore}/10 - Your email may be marked as spam`, {
+        // FIX: Align client side warnings with server block logic (server blocks at >= 7)
+        if (data.spamScore >= 7) {
+            toast.error(`Spam score: ${data.spamScore}/10 - Sending will be blocked by the server. Fix issues before trying again.`, { duration: 7000 });
+        } else if (data.spamScore >= 5) {
+          toast.warning(`Spam score: ${data.spamScore}/10 - Moderate risk detected. Recommended to check warnings.`, {
             duration: 5000
           });
         } else if (data.spamScore >= 3) {
@@ -230,13 +248,12 @@ export default function ComposeDialog({
   };
 
   // Check spam score when content changes (debounced)
-  React.useEffect(() => {
+  useEffect(() => {
     const timer = setTimeout(() => {
-      if (subject && body && selectedAccount) {
         checkSpamScore();
-      }
     }, 1000);
     return () => clearTimeout(timer);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [subject, body, selectedAccount]);
 
   const handleSend = () => {
@@ -248,8 +265,9 @@ export default function ComposeDialog({
       toast.error('Please add a subject');
       return;
     }
-    if (!body.trim()) {
-      toast.error('Please add a message');
+    if (body.trim().length < MIN_BODY_LENGTH) {
+      // FIX: Added client-side validation for minimum text length
+      toast.error(`Message must be at least ${MIN_BODY_LENGTH} characters long.`); 
       return;
     }
     if (!selectedAccount) {
@@ -257,19 +275,27 @@ export default function ComposeDialog({
       return;
     }
 
-    // Warn if spam score is high
-    if (spamScore !== null && spamScore >= 6) {
-      if (!confirm(`Your email has a high spam score (${spamScore}/10). It may be marked as spam. Send anyway?`)) {
+    // FIX: Align client-side confirmation with server-side block (server blocks at >= 7)
+    if (spamScore !== null && spamScore >= 6 && spamScore < 7) {
+      if (!confirm(`Your email has a moderate spam risk (${spamScore.toFixed(1)}/10). It may be marked as spam. Send anyway?`)) {
         return;
       }
     }
+    
+    // Hard block if score is 7 or higher, consistent with server
+    if (spamScore !== null && spamScore >= 7) {
+         toast.error(`Sending blocked. Spam score is too high (${spamScore.toFixed(1)}/10). Please fix issues.`);
+         return;
+    }
 
-    sendMutation.mutate({});
+    sendMutation.mutate();
   };
 
   const handleFileUpload = (event: React.ChangeEvent<HTMLInputElement>) => {
     const files = Array.from(event.target.files || []);
     setAttachments(prev => [...prev, ...files]);
+    // Clear the input value so the same file can be selected again if needed
+    event.target.value = '';
   };
 
   const removeAttachment = (index: number) => {
@@ -536,10 +562,10 @@ export default function ComposeDialog({
                   </div>
                   <div className="flex items-center justify-between">
                     <span className="text-blue-600">
-                      Today: {rateLimits.daily.count}/{rateLimits.daily.limit}
+                      Daily: {rateLimits.daily.count}/{rateLimits.daily.limit}
                     </span>
                     <span className="text-blue-600">
-                      This hour: {rateLimits.hourly.count}/{rateLimits.hourly.limit}
+                      Hourly: {rateLimits.hourly.count}/{rateLimits.hourly.limit}
                     </span>
                   </div>
                 </div>
@@ -550,14 +576,14 @@ export default function ComposeDialog({
                 <div className={cn(
                   "mb-3 p-3 rounded-lg text-sm",
                   spamScore < 3 ? "bg-green-50 border border-green-200" :
-                  spamScore < 5 ? "bg-yellow-50 border border-yellow-200" :
+                  spamScore < 7 ? "bg-yellow-50 border border-yellow-200" : // Changed to check < 7
                   "bg-red-50 border border-red-200"
                 )}>
                   <div className="flex items-center justify-between mb-1">
                     <span className={cn(
                       "font-medium",
                       spamScore < 3 ? "text-green-700" :
-                      spamScore < 5 ? "text-yellow-700" :
+                      spamScore < 7 ? "text-yellow-700" : // Changed to check < 7
                       "text-red-700"
                     )}>
                       Spam Score: {spamScore.toFixed(1)}/10
@@ -565,17 +591,17 @@ export default function ComposeDialog({
                     <span className={cn(
                       "text-xs px-2 py-0.5 rounded",
                       spamScore < 3 ? "bg-green-100 text-green-700" :
-                      spamScore < 5 ? "bg-yellow-100 text-yellow-700" :
+                      spamScore < 7 ? "bg-yellow-100 text-yellow-700" : // Changed to check < 7
                       "bg-red-100 text-red-700"
                     )}>
-                      {spamScore < 3 ? "Excellent" : spamScore < 5 ? "Good" : "Poor"}
+                      {spamScore < 3 ? "Excellent" : spamScore < 7 ? "Moderate Risk" : "High Risk (Blocked)"}
                     </span>
                   </div>
                   {spamWarnings.length > 0 && (
                     <ul className={cn(
                       "text-xs mt-2 space-y-1",
                       spamScore < 3 ? "text-green-600" :
-                      spamScore < 5 ? "text-yellow-600" :
+                      spamScore < 7 ? "text-yellow-600" : // Changed to check < 7
                       "text-red-600"
                     )}>
                       {spamWarnings.slice(0, 3).map((warning, idx) => (
@@ -590,10 +616,11 @@ export default function ComposeDialog({
                 <div className="flex items-center gap-2">
                   <Button
                     onClick={handleSend}
-                    disabled={sendMutation.isPending || checkingSpam}
+                    disabled={sendMutation.isPending || checkingSpam || (spamScore !== null && spamScore >= 7)}
                     className={cn(
                       "bg-blue-600 hover:bg-blue-700",
-                      spamScore !== null && spamScore >= 6 && "bg-orange-600 hover:bg-orange-700"
+                      spamScore !== null && spamScore >= 6 && "bg-orange-600 hover:bg-orange-700",
+                      spamScore !== null && spamScore >= 7 && "bg-red-500 opacity-70 cursor-not-allowed hover:bg-red-500" // New style for blocked status
                     )}
                   >
                     <Send className="h-4 w-4 mr-2" />
@@ -617,6 +644,9 @@ export default function ComposeDialog({
                 </div>
 
                 <div className="text-xs text-gray-500">
+                  {body.trim().length < MIN_BODY_LENGTH && (
+                    <span className="text-red-500 mr-2">Minimum {MIN_BODY_LENGTH} characters required.</span>
+                  )}
                   {checkingSpam ? 'Checking deliverability...' : 'Press Ctrl+Enter to send'}
                 </div>
               </div>

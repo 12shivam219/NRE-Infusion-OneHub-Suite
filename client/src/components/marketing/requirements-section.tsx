@@ -125,7 +125,8 @@ export default function RequirementsSection() {
     totalPages: 0,
   };
 
-  const filteredRequirements = requirements;
+  // FIX: Removed redundant local filtering variable since data is filtered on backend
+  // const filteredRequirements = requirements; 
   const statusOptions = ['All', 'New', 'In Progress', 'Submitted', 'Closed'];
 
   // Create requirement mutation
@@ -317,6 +318,8 @@ export default function RequirementsSection() {
       }));
 
       // Invalidate the requirements query to refresh the list
+      // Note: Full invalidation is deferred to onSettled for cleaner logic, 
+      // but keeping local success invalidation here is fine.
       queryClient.invalidateQueries({
         queryKey: [
           '/api/marketing/requirements',
@@ -332,6 +335,7 @@ export default function RequirementsSection() {
     onError: (error: Error) => {
       toast.error(error.message || 'Failed to update field');
     },
+
   });
 
   const handleViewRequirement = (requirement: any) => {
@@ -392,6 +396,8 @@ export default function RequirementsSection() {
     const consultant = consultants.find((c: any) => c.id === consultantId);
     return consultant?.name || 'Unassigned';
   };
+  
+
 
   // Loading state
   if (isLoading) {
@@ -501,7 +507,8 @@ export default function RequirementsSection() {
 
         {/* Requirements List */}
         <div className="space-y-3">
-          {filteredRequirements.map((requirement: any) => (
+          {/* FIX: Use 'requirements' directly instead of the removed 'filteredRequirements' alias */}
+          {requirements.map((requirement: any) => ( 
             <Card
               key={requirement.id}
               className="border-slate-200 hover:shadow-md hover:border-slate-300 transition-all group"
@@ -620,7 +627,8 @@ export default function RequirementsSection() {
         )}
 
         {/* Empty States */}
-        {filteredRequirements.length === 0 && pagination.total > 0 && (
+        {/* FIX: Use 'requirements' instead of the removed 'filteredRequirements' alias */}
+        {requirements.length === 0 && pagination.total > 0 && ( 
           <Card className="border-slate-200">
             <CardContent className="p-12 text-center">
               <div className="h-16 w-16 mx-auto mb-4 rounded-full bg-slate-100 flex items-center justify-center">

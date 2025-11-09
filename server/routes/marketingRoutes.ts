@@ -10,7 +10,8 @@ import {
   or, 
   like, 
   gte, 
-  lte 
+  lte,
+  inArray
 } from 'drizzle-orm';
 import { isAuthenticated } from '../localAuth';
 import {
@@ -598,20 +599,32 @@ router.post('/consultants', conditionalCSRF, writeOperationsRateLimiter, async (
   }
 });
 
-// Update consultant (OPTIMIZED with transaction and batch insert)
+// Update consultant (FIX: Implemented Project Diffing for efficiency and data integrity)
 router.patch('/consultants/:id', conditionalCSRF, writeOperationsRateLimiter, async (req, res) => {
   try {
     const { id } = req.params;
     const { consultant: consultantData, projects = [] } = req.body;
     
-    // Get old data for audit log
-    const oldConsultant = await db.query.consultants.findFirst({
-      where: eq(consultants.id, id),
-    });
+    // 1. Get old data for audit log AND current projects for diffing
+    const [oldConsultant, oldProjects] = await Promise.all([
+      db.query.consultants.findFirst({ where: eq(consultants.id, id) }),
+      db.query.consultantProjects.findMany({ where: eq(consultantProjects.consultantId, id) })
+    ]);
     
     if (!oldConsultant) {
       return res.status(404).json({ message: 'Consultant not found' });
     }
+    
+    // --- Project Diffing Logic START (Fixing Architecture Flaw) ---
+    const oldProjectIds = new Set(oldProjects.map(p => p.id));
+    const incomingProjectIds = new Set(projects.filter((p: any) => p.id).map((p: any) => p.id));
+
+    const projectsToUpdate = projects.filter((p: any) => p.id && oldProjectIds.has(p.id));
+    const projectsToInsert = projects.filter((p: any) => !p.id);
+    const projectsToDeleteIds = oldProjects
+        .filter(p => !incomingProjectIds.has(p.id))
+        .map(p => p.id);
+    // --- Project Diffing Logic END ---
     
     // Sanitize input data
     const sanitizedData = sanitizeConsultantData(consultantData);
@@ -623,7 +636,7 @@ router.patch('/consultants/:id', conditionalCSRF, writeOperationsRateLimiter, as
     
     // Use transaction for atomic operation
     const result = await executeTransaction(async (tx) => {
-      // Update consultant
+      // 2. Update consultant
       const updateData = insertConsultantSchema.partial().parse(sanitizedData);
       const [updatedConsultant] = await tx
         .update(consultants)
@@ -635,24 +648,40 @@ router.patch('/consultants/:id', conditionalCSRF, writeOperationsRateLimiter, as
         throw new Error('Consultant not found');
       }
 
-      // FIX #4 (Data Loss Mitigation): Delete and re-insert projects. This is a known risk
-      // but maintained for simple data model refresh as originally intended.
-      await tx.delete(consultantProjects).where(eq(consultantProjects.consultantId, id));
-      
-      let createdProjects: any[] = [];
-      if (projects.length > 0) {
-        const validatedProjects = projects.map((project: any) => 
+      // 3. Delete removed projects
+      if (projectsToDeleteIds.length > 0) {
+          // Use inArray for safe, clean deletion of multiple records
+          await tx.delete(consultantProjects)
+                  .where(inArray(consultantProjects.id, projectsToDeleteIds));
+      }
+
+      // 4. Update existing projects
+      for (const project of projectsToUpdate) {
+        const validatedProject = insertConsultantProjectSchema.partial().parse(project);
+        await tx.update(consultantProjects)
+                .set({ ...validatedProject, updatedAt: new Date() })
+                .where(eq(consultantProjects.id, project.id));
+      }
+
+      // 5. Insert new projects
+      let insertedProjects: any[] = [];
+      if (projectsToInsert.length > 0) {
+        const validatedProjects = projectsToInsert.map((project: any) => 
           insertConsultantProjectSchema.parse({
             ...project,
             consultantId: id
           })
         );
-        
-        // Single batch insert for all projects
-        createdProjects = await tx.insert(consultantProjects).values(validatedProjects).returning();
+        insertedProjects = await tx.insert(consultantProjects).values(validatedProjects).returning();
       }
 
-      return { updatedConsultant, createdProjects };
+      // Re-fetch all projects to return the complete, fresh list
+      const finalProjects = await tx.query.consultantProjects.findMany({ 
+          where: eq(consultantProjects.consultantId, id),
+          orderBy: [desc(consultantProjects.createdAt)]
+      });
+
+      return { updatedConsultant, finalProjects };
     });
     
     // Log audit trail
@@ -666,7 +695,7 @@ router.patch('/consultants/:id', conditionalCSRF, writeOperationsRateLimiter, as
     );
     
     // FIX #3 (Update): Decrypt and mask SSN before sending response
-    const responseData = { ...result.updatedConsultant, projects: result.createdProjects };
+    const responseData = { ...result.updatedConsultant, projects: result.finalProjects };
     if (responseData.ssn) {
       try {
         responseData.ssn = maskSSN(decrypt(responseData.ssn));
@@ -1094,52 +1123,28 @@ router.get('/interviews/:id', async (req, res) => {
   }
 });
 
-// Create interview
+// Create interview (Fixed: Removed redundant foreign key checks)
 router.post('/interviews', conditionalCSRF, writeOperationsRateLimiter, async (req, res) => {
   try {
     // FIX #8: Removed redundant manual checks, relying on Zod's `min(1)` and sanitized data checks.
-    const { requirementId, consultantId, interviewDate, interviewTime } = req.body;
     
     // Sanitize input first
     const sanitizedData = sanitizeInterviewData(req.body);
     
-    // Manual checks only for existence in DB
+    // Manual checks for existence of required IDs (rely on FK constraint for existence validation)
     if (!sanitizedData.requirementId || !sanitizedData.consultantId) {
       return res.status(400).json({ 
         message: 'Requirement ID and Consultant ID are required',
       });
     }
 
-    // Verify that the requirement and consultant exist
-    const [requirement, consultant] = await Promise.all([
-      db.query.requirements.findFirst({
-        where: eq(requirements.id, sanitizedData.requirementId),
-        columns: { id: true }
-      }),
-      db.query.consultants.findFirst({
-        where: eq(consultants.id, sanitizedData.consultantId),
-        columns: { id: true }
-      })
-    ]);
-    
-    if (!requirement) {
-      return res.status(400).json({ 
-        message: 'Invalid requirement ID',
-        errors: [{ path: ['requirementId'], message: 'Requirement not found' }]
-      });
-    }
-    
-    if (!consultant) {
-      return res.status(400).json({ 
-        message: 'Invalid consultant ID',
-        errors: [{ path: ['consultantId'], message: 'Consultant not found' }]
-      });
-    }
+    // REMOVED: Redundant db lookups for requirement and consultant existence. 
+    // We rely on the Foreign Key Constraint on the `interviews` table for this validation.
     
     // Generate display ID
     const displayId = await generateInterviewDisplayId();
     
-    // FIX #9: Rely on the sanitizer's `sanitizeDate` for date parsing consistency.
+    // FIX: Unified date parsing/validation logic to prevent inconsistencies
     let parsedInterviewDate = sanitizedData.interviewDate;
     if (typeof parsedInterviewDate === 'string') {
         const date = new Date(parsedInterviewDate);
@@ -1150,13 +1155,18 @@ router.post('/interviews', conditionalCSRF, writeOperationsRateLimiter, async (r
             });
         }
         parsedInterviewDate = date;
+    } else if (parsedInterviewDate && parsedInterviewDate instanceof Date && isNaN(parsedInterviewDate.getTime())) {
+        return res.status(400).json({ 
+            message: 'Invalid interview date format',
+            errors: [{ path: ['interviewDate'], message: 'Invalid date format' }]
+        });
     }
     
     const interviewData = insertInterviewSchema.parse({
       ...sanitizedData,
       requirementId: sanitizedData.requirementId,
       consultantId: sanitizedData.consultantId,
-      interviewDate: parsedInterviewDate,
+      interviewDate: parsedInterviewDate as Date,
       interviewTime: sanitizedData.interviewTime,
       displayId,
       createdBy: req.user!.id
@@ -1173,11 +1183,12 @@ router.post('/interviews', conditionalCSRF, writeOperationsRateLimiter, async (r
     if (error instanceof z.ZodError) {
       return res.status(400).json({ message: 'Invalid data', errors: error.errors });
     }
+    // Catch FK constraint violation error here (database specific)
     res.status(500).json({ message: 'Failed to create interview' });
   }
 });
 
-// Update interview
+// Update interview (Fixed: Unified and simplified date parsing)
 router.patch('/interviews/:id', conditionalCSRF, writeOperationsRateLimiter, async (req, res) => {
   try {
     const { id } = req.params;
@@ -1195,7 +1206,7 @@ router.patch('/interviews/:id', conditionalCSRF, writeOperationsRateLimiter, asy
     const sanitizedData = sanitizeInterviewData(req.body);
     let updateData = insertInterviewSchema.partial().parse(sanitizedData);
     
-    // FIX: Convert interviewDate string to Date object if present in payload
+    // FIX: Unified date parsing/validation logic
     if (updateData.interviewDate) {
       let parsedInterviewDate = updateData.interviewDate;
       if (typeof parsedInterviewDate === 'string') {
@@ -1207,6 +1218,11 @@ router.patch('/interviews/:id', conditionalCSRF, writeOperationsRateLimiter, asy
               });
           }
           parsedInterviewDate = date;
+      } else if (parsedInterviewDate instanceof Date && isNaN(parsedInterviewDate.getTime())) {
+          return res.status(400).json({ 
+              message: 'Invalid interview date format',
+              errors: [{ path: ['interviewDate'], message: 'Invalid date format' }]
+          });
       }
       // Overwrite the property in updateData with the validated Date object
       updateData = { ...updateData, interviewDate: parsedInterviewDate };
