@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react'; // <-- ADDED useEffect import
 import { useForm } from 'react-hook-form';
 import { useLocation } from 'wouter';
 import { zodResolver } from '@hookform/resolvers/zod';
@@ -42,6 +42,13 @@ export function LoginForm({ onForgotPassword, onSuccess }: LoginFormProps = {}) 
 
   const [requiresVerification, setRequiresVerification] = useState(false);
 
+  // FIX: Proactively fetch CSRF token on component mount.
+  // This ensures a valid token is present before the first form submission,
+  // resolving the "double-click" and "first attempt failed" bugs.
+  useEffect(() => {
+    getCsrfToken();
+  }, []);
+
   const form = useForm<FormData>({
     resolver: zodResolver(formSchema),
     defaultValues: {
@@ -76,7 +83,7 @@ export function LoginForm({ onForgotPassword, onSuccess }: LoginFormProps = {}) 
 
     setIsLoading(true);
     try {
-      // Get CSRF token and ensure it's fresh
+      // Get CSRF token and ensure it's fresh (it should be now due to useEffect fix)
       const csrfToken = getCsrfToken();
 
       const response = await fetch('/api/auth/login', {
