@@ -1,4 +1,4 @@
-import { useState, useEffect, lazy, Suspense } from 'react';
+import { useState, useEffect } from 'react';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent } from '@/components/ui/card';
 import { FileText, CreditCard as Edit, Download, Users, Star, ArrowRight } from 'lucide-react';
@@ -10,12 +10,9 @@ import { useToast } from '@/hooks/use-toast';
 import { useAuth } from '@/hooks/useAuth';
 import { useLocation } from 'wouter';
 import { PageLoader } from '@/components/ui/page-loader';
-
-// Lazy-load non-critical sections (features, process, CTA)
-const FeaturesSection = lazy(() => import('./landing-sections/features'));
-const ProcessSection = lazy(() => import('./landing-sections/process'));
-const CTASection = lazy(() => import('./landing-sections/cta'));
-const HeroPlaceholder = () => <div style={{ minHeight: '200px' }} />;
+import FeaturesSection from './landing-sections/features';
+import ProcessSection from './landing-sections/process';
+import CTASection from './landing-sections/cta';
 
 export default function Landing() {
   const [showCookieNotice, setShowCookieNotice] = useState(false);
@@ -198,20 +195,14 @@ export default function Landing() {
         </div>
       </section>
 
-      {/* Features Section - Lazy loaded */}
-      <Suspense fallback={<div className="py-20 bg-card" />}>
-        <FeaturesSection />
-      </Suspense>
+      {/* Features Section */}
+      <FeaturesSection />
 
-      {/* Process Section - Lazy loaded */}
-      <Suspense fallback={<div className="py-16" />}>
-        <ProcessSection />
-      </Suspense>
+      {/* Process Section */}
+      <ProcessSection />
 
-      {/* CTA Section - Lazy loaded */}
-      <Suspense fallback={<div className="py-20 bg-gradient-to-r from-primary to-accent" />}>
-        <CTASection />
-      </Suspense>
+      {/* CTA Section */}
+      <CTASection />
 
       {/* Footer */}
       <footer className="bg-card border-t border-border py-8 px-4 sm:px-6 lg:px-8">

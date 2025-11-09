@@ -69,9 +69,10 @@ class EnhancedRedisService {
           this.isReady = true;
           logger.info('Enhanced Redis service ready');
         })
-        .on('error', (err: any) => {
-          logger.error('Enhanced Redis error: ' + (err instanceof Error ? err.message : String(err)));
-        })
+        .on('error', (err: unknown) => {
+          const message = err instanceof Error ? err.message : String(err);
+          logger.error('Enhanced Redis error: ' + message);
+        }) 
         .on('close', () => {
           this.isReady = false;
           logger.warn('Enhanced Redis connection closed');
@@ -262,11 +263,11 @@ class EnhancedRedisService {
    */
   async clearByPattern(pattern: string): Promise<number> {
     try {
-      const keys = await this.client.keys(pattern);
+      const keys: string[] = await this.client.keys(pattern);
       if (keys.length === 0) return 0;
       
       const pipeline = this.client.pipeline();
-      keys.forEach((key: any) => pipeline.del(key));
+      keys.forEach((key: string) => pipeline.del(key));
       
       await pipeline.exec();
       return keys.length;

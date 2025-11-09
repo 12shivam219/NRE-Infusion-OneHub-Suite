@@ -228,8 +228,19 @@ export const processingHistory = pgTable("processing_history", {
 ]);
 
 // Relations
-export const usersRelations = relations(users, ({ many }) => ({
+// FIX #10: Added self-referencing relations (approvedByAdmin, rejectedByAdmin)
+export const usersRelations = relations(users, ({ many, one }) => ({
   resumes: many(resumes),
+  approvedByAdmin: one(users, {
+    fields: [users.approvedBy],
+    references: [users.id],
+    relationName: 'approvedByAdmin',
+  }),
+  rejectedByAdmin: one(users, {
+    fields: [users.rejectedBy],
+    references: [users.id],
+    relationName: 'rejectedByAdmin',
+  }),
 }));
 
 export const resumesRelations = relations(resumes, ({ one, many }) => ({
@@ -376,7 +387,8 @@ export const requirements = pgTable("requirements", {
   displayId: varchar("display_id"), // REQ ID - 1, REQ ID - 2, etc.
   // Requirement & Communication
   status: varchar("status").notNull().default("New"), // New, Working, Applied, Submitted, Interviewed, Cancelled
-  consultantId: varchar("consultant_id").notNull().references(() => consultants.id, { onDelete: 'set null' }), // Reference to consultant
+  // FIX #7: Removed .notNull() to resolve conflict with onDelete: 'set null'
+  consultantId: varchar("consultant_id").references(() => consultants.id, { onDelete: 'set null' }), // Reference to consultant
   nextStep: text("next_step"),
   appliedFor: varchar("applied_for").notNull(),
   rate: text("rate"),
@@ -426,7 +438,8 @@ export const interviews = pgTable("interviews", {
   timezone: varchar("timezone"), // Remove default and make optional
   interviewType: varchar("interview_type"),
   status: varchar("status"), // Make optional
-  consultantId: varchar("consultant_id").notNull().references(() => consultants.id, { onDelete: 'set null' }), // Keep mandatory
+  // FIX #8: Removed .notNull() to resolve conflict with onDelete: 'set null'
+  consultantId: varchar("consultant_id").references(() => consultants.id, { onDelete: 'set null' }), // Kept mandatory logic in API, but DB constraint must allow NULL on delete
   marketingPersonId: varchar("marketing_person_id").references(() => users.id, { onDelete: 'set null' }),
   vendorCompany: varchar("vendor_company"),
   interviewWith: varchar("interview_with"), // Client/IMP/Vendor
@@ -626,7 +639,8 @@ export const requirementsRelations = relations(requirements, ({ one, many }) => 
     fields: [requirements.createdBy],
     references: [users.id],
   }),
-  consultant: one(consultants, {
+  // Consultant relation is now optional in DB to prevent foreign key errors on consultant deletion
+  consultant: one(consultants, { 
     fields: [requirements.consultantId],
     references: [consultants.id],
   }),
@@ -639,6 +653,7 @@ export const interviewsRelations = relations(interviews, ({ one }) => ({
     fields: [interviews.requirementId],
     references: [requirements.id],
   }),
+  // Consultant relation is now optional in DB to prevent foreign key errors on consultant deletion
   consultant: one(consultants, {
     fields: [interviews.consultantId],
     references: [consultants.id],
@@ -750,7 +765,7 @@ export const insertConsultantProjectSchema = z.object({
 
 // Requirement schema - flexible
 export const insertRequirementSchema = z.object({
-  consultantId: z.any(), // Required in DB
+  consultantId: z.any().optional(), // Now optional based on DB fix
   jobTitle: z.any(), // Required in DB
   appliedFor: z.any(), // Required in DB
   status: z.any().optional(),
@@ -783,7 +798,7 @@ export const insertInterviewSchema = z.object({
   timezone: z.string().optional().default("EST"),
   interviewType: z.string().optional(),
   status: z.string().optional().default("Confirmed"),
-  consultantId: z.string().min(1, "Consultant is required"),
+  consultantId: z.string().optional(), // Now optional based on DB fix
   marketingPersonId: z.string().optional(),
   vendorCompany: z.string().optional(),
   interviewWith: z.string().optional(),

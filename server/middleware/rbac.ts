@@ -7,16 +7,32 @@ import { eq } from 'drizzle-orm';
 import { logger } from '../utils/logger';
 
 /**
- * Get user's role from database
+ * FIX: Replaced the inefficient getUserRole with a dynamic resolver.
+ * This function checks if the role is already cached on req.user (solving N+1).
+ * If not found, it fetches it once from the DB and caches it back onto req.user.
  */
-async function getUserRole(userId: string): Promise<UserRoleType> {
+async function resolveUserRole(req: Request): Promise<UserRoleType> {
+  // 1. Check if the role is already cached on the request's user object
+  if (req.user?.role) {
+    return req.user.role as UserRoleType;
+  }
+  
+  // 2. If not cached, fetch it from the database
   const user = await db.query.users.findFirst({
-    where: eq(users.id, userId),
+    where: eq(users.id, req.user!.id),
     columns: {
       role: true
     }
   });
-  return user?.role || UserRole.USER;
+  
+  const userRole = user?.role || UserRole.USER;
+  
+  // 3. Cache the fetched role onto the request object for subsequent middleware checks
+  if (req.user) {
+    req.user.role = userRole;
+  }
+  
+  return userRole;
 }
 
 /**
@@ -32,7 +48,9 @@ export const requireRole = (role: UserRoleType) => {
     }
     
     try {
-      const userRole = await getUserRole(req.user.id);
+      // FIX: Use the efficient resolver instead of repeated DB query
+      const userRole = await resolveUserRole(req);
+      
       if (!hasRoleLevel(userRole, role)) {
         logger.warn({ userId: req.user.id, requiredRole: role, userRole }, 'Insufficient role');
         return res.status(403).json({ 
@@ -41,8 +59,7 @@ export const requireRole = (role: UserRoleType) => {
         });
       }
       
-      // Attach role to request for future middleware
-      req.user.role = userRole;
+      // Note: resolveUserRole already attached the role to req.user
       next();
     } catch (error) {
       logger.error({ error, userId: req.user.id }, 'Role check failed');
@@ -67,7 +84,9 @@ export const requirePermission = (permission: PermissionType) => {
     }
     
     try {
-      const userRole = await getUserRole(req.user.id);
+      // FIX: Use the efficient resolver instead of repeated DB query
+      const userRole = await resolveUserRole(req);
+      
       if (!hasPermission(userRole, permission)) {
         logger.warn({ userId: req.user.id, requiredPermission: permission, userRole }, 'Permission denied');
         return res.status(403).json({ 
@@ -76,8 +95,7 @@ export const requirePermission = (permission: PermissionType) => {
         });
       }
       
-      // Attach role to request for future middleware
-      req.user.role = userRole;
+      // Note: resolveUserRole already attached the role to req.user
       next();
     } catch (error) {
       logger.error({ error, userId: req.user.id }, 'Permission check failed');
@@ -102,7 +120,9 @@ export const requireAllPermissions = (permissions: PermissionType[]) => {
     }
     
     try {
-      const userRole = await getUserRole(req.user.id);
+      // FIX: Use the efficient resolver instead of repeated DB query
+      const userRole = await resolveUserRole(req);
+      
       if (!hasAllPermissions(userRole, permissions)) {
         logger.warn({ userId: req.user.id, requiredPermissions: permissions, userRole }, 'Insufficient permissions');
         return res.status(403).json({ 
@@ -111,8 +131,7 @@ export const requireAllPermissions = (permissions: PermissionType[]) => {
         });
       }
       
-      // Attach role to request for future middleware
-      req.user.role = userRole;
+      // Note: resolveUserRole already attached the role to req.user
       next();
     } catch (error) {
       logger.error({ error, userId: req.user.id }, 'Permission check failed');

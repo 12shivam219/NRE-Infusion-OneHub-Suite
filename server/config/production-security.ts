@@ -17,7 +17,7 @@ export const configureProductionSecurity = (app: Application) => {
       if (req.headers['x-no-compression']) {
         return false;
       }
-      return compression.filter(req, res);
+      return (compression as any).filter(req, res);
     }
   }));
   

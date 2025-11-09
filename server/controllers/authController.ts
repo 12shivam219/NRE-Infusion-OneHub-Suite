@@ -1,7 +1,8 @@
 import { Request, Response } from 'express';
 import passport from 'passport';
 import { AuthService } from '../services/authService';
-import { users, userDevices } from '@shared/schema';
+// FIX #4: Converted dynamic imports to static imports for performance
+import { users, userDevices, loginHistory } from '@shared/schema'; // Added loginHistory
 import { db } from '../db';
 import { eq, and } from 'drizzle-orm';
 import { TwoFactorAuth } from '../utils/twoFactor';
@@ -9,6 +10,12 @@ import { ActivityTracker } from '../utils/activityTracker';
 import { EmailValidator } from '../utils/emailValidator';
 import { createHash } from 'crypto';
 import { logger } from '../utils/logger';
+// FIX #2 dependency: Imported sanitization helper
+import { sanitizeText } from '../utils/sanitizer';
+// FIX #4: Static imports for security/device utilities
+import { DeviceParser } from '../utils/deviceParser';
+import { GeolocationService } from '../services/geolocationService';
+import { SuspiciousActivityDetector } from '../utils/suspiciousActivityDetector';
 
 function parseCookies(header?: string) {
   const result: Record<string, string> = {};
@@ -54,9 +61,120 @@ function extractTracking(req: Request) {
 }
 
 export class AuthController {
+  
+  // FIX #3: Helper method to consolidate all security, tracking, token generation, and DB updates on a successful login/2FA
+  private static async _performLoginUpdates(req: Request, user: any) {
+    // Get geolocation and device info
+    const ipAddress = (req.ip || 'unknown').replace('::ffff:', '');
+    const userAgent = req.headers['user-agent'] as string || '';
+    
+    // Parse device info
+    const deviceInfo = DeviceParser.parse(userAgent);
+    
+    // Get geolocation
+    const geoData = await GeolocationService.getLocation(ipAddress);
+    
+    // Check for suspicious activity
+    const suspiciousCheck = await SuspiciousActivityDetector.analyze(user.id, {
+      ipAddress,
+      city: geoData.city,
+      region: geoData.region,
+      country: geoData.country,
+      browser: deviceInfo.browser,
+      os: deviceInfo.os,
+      deviceType: deviceInfo.deviceType
+    });
+    
+    // Log login to history
+    await db.insert(loginHistory).values({
+      userId: user.id,
+      status: 'success',
+      ipAddress,
+      city: geoData.city,
+      region: geoData.region,
+      country: geoData.country,
+      countryCode: geoData.countryCode,
+      timezone: geoData.timezone,
+      isp: geoData.isp,
+      latitude: geoData.latitude,
+      longitude: geoData.longitude,
+      userAgent,
+      browser: deviceInfo.browser,
+      browserVersion: deviceInfo.browserVersion,
+      os: deviceInfo.os,
+      osVersion: deviceInfo.osVersion,
+      deviceType: deviceInfo.deviceType,
+      deviceVendor: deviceInfo.deviceVendor,
+      isSuspicious: suspiciousCheck.isSuspicious,
+      suspiciousReasons: suspiciousCheck.reasons,
+      isNewLocation: suspiciousCheck.isNewLocation,
+      isNewDevice: suspiciousCheck.isNewDevice
+    });
+    
+    // Send alerts if suspicious or new device
+    if (suspiciousCheck.isSuspicious) {
+      SuspiciousActivityDetector.alertAdmin(user.id, user.email, suspiciousCheck.reasons, {
+        ipAddress,
+        city: geoData.city,
+        region: geoData.region,
+        country: geoData.country,
+        browser: deviceInfo.browser,
+        os: deviceInfo.os,
+        deviceType: deviceInfo.deviceType
+      });
+    }
+    
+    if (suspiciousCheck.isNewDevice) {
+      SuspiciousActivityDetector.notifyUser(user.email, `${user.firstName} ${user.lastName}`.trim() || 'User', {
+        ipAddress,
+        city: geoData.city,
+        region: geoData.region,
+        country: geoData.country,
+        browser: deviceInfo.browser,
+        os: deviceInfo.os,
+        deviceType: deviceInfo.deviceType
+      });
+    }
+    
+    // Generate tokens
+    const accessToken = AuthService.generateAccessToken(user.id);
+    const refreshToken = await AuthService.generateRefreshToken(
+      user.id,
+      userAgent,
+      ipAddress
+    );
+
+    // Update last login with full tracking info
+    await db
+      .update(users)
+      .set({ 
+        lastLoginAt: new Date(),
+        lastIpAddress: ipAddress,
+        lastUserAgent: userAgent,
+        lastLoginCity: geoData.city,
+        lastLoginCountry: geoData.country,
+        lastLoginBrowser: deviceInfo.browser,
+        lastLoginOs: deviceInfo.os,
+        lastLoginDevice: deviceInfo.deviceType,
+        failedLoginAttempts: 0,
+        accountLockedUntil: null,
+      })
+      .where(eq(users.id, user.id));
+
+    // Return tokens and user info (without sensitive data)
+    const { password: _, ...userWithoutPassword } = user;
+    
+    return { userWithoutPassword, accessToken, refreshToken };
+  }
+
   // Register a new user
   static async register(req: Request, res: Response) {
-    const { email, password, pseudoName, firstName, lastName } = req.body;
+    const { email, password } = req.body;
+    
+    // FIX #2: Sanitize user-provided display names/text fields to prevent XSS/Injection
+    const pseudoName = sanitizeText(req.body.pseudoName);
+    const firstName = sanitizeText(req.body.firstName);
+    const lastName = sanitizeText(req.body.lastName);
 
     try {
       // Validate email format and check for common issues
@@ -126,7 +244,7 @@ export class AuthController {
       res.status(201).json({ 
         message: 'Registration successful. Please check your email to verify your account.',
         userId: newUser.id.toString(),
-        verificationToken: verification.token,
+        // FIX #1: Removed verificationToken: verification.token (Critical Security Flaw)
         email: newUser.email,
       });
     } catch (error) {
@@ -192,6 +310,8 @@ export class AuthController {
         }
 
         if (user.approvalStatus !== 'approved') {
+          // Note: This status should ideally be handled by the 'pending_verification' check earlier, 
+          // but kept here for existing logic integrity.
           return res.status(403).json({ 
             success: false,
             message: 'Account verification pending. Please complete email verification first.',
@@ -225,121 +345,18 @@ export class AuthController {
             return next(err);
           }
           
-          // Get geolocation and device info
-          const ipAddress = (req.ip || 'unknown').replace('::ffff:', '');
-          const userAgent = req.headers['user-agent'] as string || '';
+          // FIX #3 & #4: Consolidated security and login logic into a helper method.
+          const { userWithoutPassword, accessToken, refreshToken } = await AuthController._performLoginUpdates(req, user);
           
-          // Parse device info
-          const { DeviceParser } = await import('../utils/deviceParser');
-          const deviceInfo = DeviceParser.parse(userAgent);
-          
-          // Get geolocation
-          const { GeolocationService } = await import('../services/geolocationService');
-          const geoData = await GeolocationService.getLocation(ipAddress);
-          
-          // Check for suspicious activity
-          const { SuspiciousActivityDetector } = await import('../utils/suspiciousActivityDetector');
-          const suspiciousCheck = await SuspiciousActivityDetector.analyze(user.id, {
-            ipAddress,
-            city: geoData.city,
-            region: geoData.region,
-            country: geoData.country,
-            browser: deviceInfo.browser,
-            os: deviceInfo.os,
-            deviceType: deviceInfo.deviceType
-          });
-          
-          // Log login to history
-          const { loginHistory } = await import('@shared/schema');
-          await db.insert(loginHistory).values({
-            userId: user.id,
-            status: 'success',
-            ipAddress,
-            city: geoData.city,
-            region: geoData.region,
-            country: geoData.country,
-            countryCode: geoData.countryCode,
-            timezone: geoData.timezone,
-            isp: geoData.isp,
-            latitude: geoData.latitude,
-            longitude: geoData.longitude,
-            userAgent,
-            browser: deviceInfo.browser,
-            browserVersion: deviceInfo.browserVersion,
-            os: deviceInfo.os,
-            osVersion: deviceInfo.osVersion,
-            deviceType: deviceInfo.deviceType,
-            deviceVendor: deviceInfo.deviceVendor,
-            isSuspicious: suspiciousCheck.isSuspicious,
-            suspiciousReasons: suspiciousCheck.reasons,
-            isNewLocation: suspiciousCheck.isNewLocation,
-            isNewDevice: suspiciousCheck.isNewDevice
-          });
-          
-          // Send alerts if suspicious or new device
-          if (suspiciousCheck.isSuspicious) {
-            SuspiciousActivityDetector.alertAdmin(user.id, user.email, suspiciousCheck.reasons, {
-              ipAddress,
-              city: geoData.city,
-              region: geoData.region,
-              country: geoData.country,
-              browser: deviceInfo.browser,
-              os: deviceInfo.os,
-              deviceType: deviceInfo.deviceType
-            });
-          }
-          
-          if (suspiciousCheck.isNewDevice) {
-            SuspiciousActivityDetector.notifyUser(user.email, `${user.firstName} ${user.lastName}`.trim() || 'User', {
-              ipAddress,
-              city: geoData.city,
-              region: geoData.region,
-              country: geoData.country,
-              browser: deviceInfo.browser,
-              os: deviceInfo.os,
-              deviceType: deviceInfo.deviceType
-            });
-          }
-          
-          // Generate tokens
-          const accessToken = AuthService.generateAccessToken(user.id);
-          const refreshToken = await AuthService.generateRefreshToken(
+          // Log successful login with specific tracking info
+          const { referrer, utm } = extractTracking(req);
+          await ActivityTracker.logActivity(
             user.id,
-            userAgent,
-            ipAddress
+            'login',
+            'success',
+            { method: 'email', twoFactor: false, referrer, utm },
+            req
           );
-
-          // Update last login with full tracking info
-          await db
-            .update(users)
-            .set({ 
-              lastLoginAt: new Date(),
-              lastIpAddress: ipAddress,
-              lastUserAgent: userAgent,
-              lastLoginCity: geoData.city,
-              lastLoginCountry: geoData.country,
-              lastLoginBrowser: deviceInfo.browser,
-              lastLoginOs: deviceInfo.os,
-              lastLoginDevice: deviceInfo.deviceType,
-              failedLoginAttempts: 0,
-              accountLockedUntil: null,
-            })
-            .where(eq(users.id, user.id));
-
-          // Log successful login with enhanced tracking
-          {
-            const { referrer, utm } = extractTracking(req);
-            await ActivityTracker.logActivity(
-              user.id,
-              'login',
-              'success',
-              { method: 'email', twoFactor: false, referrer, utm },
-              req
-            );
-          }
-
-          // Return tokens and user info (without sensitive data)
-          const { password: _, ...userWithoutPassword } = user;
           
           // Ensure session state is persisted before responding to avoid race conditions
           if (req.session) {
@@ -386,7 +403,7 @@ export class AuthController {
           const { referrer, utm } = extractTracking(req);
           await ActivityTracker.logActivity(
             decoded.userId,
-'two_factor_verify',
+            'two_factor_verify',
             'failure',
             { method: 'email', referrer, utm },
             req
@@ -395,14 +412,6 @@ export class AuthController {
         
         return res.status(400).json({ message: 'Invalid verification code' });
       }
-
-      // Generate tokens
-      const accessToken = AuthService.generateAccessToken(decoded.userId);
-      const refreshToken = await AuthService.generateRefreshToken(
-        decoded.userId,
-        req.headers['user-agent'] as string,
-        (req.ip || '')
-      );
 
       // Get user data
       const user = await db.query.users.findFirst({
@@ -413,24 +422,15 @@ export class AuthController {
         return res.status(404).json({ message: 'User not found' });
       }
 
-      // Update last login
-      await db
-        .update(users)
-        .set({ 
-          lastLoginAt: new Date(),
-          lastIpAddress: req.ip,
-          lastUserAgent: req.headers['user-agent'],
-          failedLoginAttempts: 0, // Reset failed attempts
-          accountLockedUntil: null,
-        })
-        .where(eq(users.id, user.id));
+      // FIX #3: Use consolidated login updates logic for full security and tracking updates
+      const { userWithoutPassword, accessToken, refreshToken } = await AuthController._performLoginUpdates(req, user);
 
       // Log successful 2FA verification
       {
         const { referrer, utm } = extractTracking(req);
         await ActivityTracker.logActivity(
           user.id,
-'two_factor_verify',
+          'two_factor_verify',
           'success',
           { method: 'email', referrer, utm },
           req
@@ -438,8 +438,6 @@ export class AuthController {
       }
 
       // Return tokens and user info (without sensitive data)
-      const { password, ...userWithoutPassword } = user;
-      
       res.json({
         user: userWithoutPassword,
         accessToken,
@@ -692,15 +690,9 @@ export class AuthController {
         })
         .where(eq(userDevices.refreshToken, tokenHash));
 
-      // Clear cookies for token-based logout as well (best-effort)
-      res.clearCookie('sid', {
-        path: '/',
-        httpOnly: true,
-        secure: process.env.NODE_ENV === 'production',
-        sameSite: 'lax',
-        domain: process.env.COOKIE_DOMAIN || undefined,
-      });
-      res.clearCookie('csrf_token', { path: '/' });
+      // FIX #5: Removed unnecessary clearing of session cookies 
+      // res.clearCookie('sid', { ... });
+      // res.clearCookie('csrf_token', { path: '/' });
 
       // Log the logout
       if (req.user) {

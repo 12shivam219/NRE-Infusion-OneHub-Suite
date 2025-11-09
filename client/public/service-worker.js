@@ -16,8 +16,6 @@ const CACHE_STRATEGIES = {
 };
 
 const STATIC_ASSETS = [
-  '/',
-  '/index.html',
   '/manifest.json',
   '/favicon.ico',
   '/offline.html'
@@ -47,11 +45,18 @@ self.addEventListener('install', (event) => {
   
   event.waitUntil(
     Promise.all([
-      // Cache static assets
-      caches.open(STATIC_CACHE).then((cache) => {
-        return cache.addAll(STATIC_ASSETS).catch(error => {
-          console.error('[SW] Failed to cache static assets:', error);
+      // Cache static assets individually to handle failures gracefully
+      caches.open(STATIC_CACHE).then(async (cache) => {
+        const cachePromises = STATIC_ASSETS.map(async (asset) => {
+          try {
+            await cache.add(asset);
+            console.log(`[SW] Successfully cached: ${asset}`);
+          } catch (error) {
+            console.warn(`[SW] Failed to cache ${asset}:`, error.message);
+            // Continue with other assets even if one fails
+          }
         });
+        return Promise.all(cachePromises);
       }),
       
       // Pre-cache critical resources

@@ -1,3 +1,5 @@
+import { logger } from './logger'; // Static import for logger
+
 /**
  * Input Sanitization Utilities
  * Prevents XSS, SQL injection, and other malicious input
@@ -5,19 +7,20 @@
 
 /**
  * Sanitize HTML content to prevent XSS attacks
- * Strips all HTML tags and dangerous characters
+ * WARNING: Custom regex is highly prone to bypasses for XSS. 
+ * For production environments allowing rich text, strongly prefer a well-maintained library (e.g., DOMPurify).
  */
 export function sanitizeHTML(input: string): string {
-  if (!input) return '';
+  if (typeof input !== 'string') return '';
   
   return input
-    // Remove HTML tags
-    .replace(/<[^>]*>/g, '')
-    // Remove script content
+    // Remove script content (often missed by simple tag stripping)
     .replace(/<script\b[^<]*(?:(?!<\/script>)<[^<]*)*<\/script>/gi, '')
-    // Remove style content
+    // Remove style tags
     .replace(/<style\b[^<]*(?:(?!<\/style>)<[^<]*)*<\/style>/gi, '')
-    // Remove event handlers
+    // Remove all HTML tags (simplistic catch-all)
+    .replace(/<[^>]*>/g, '')
+    // Remove event handlers (e.g., onerror, onload)
     .replace(/on\w+\s*=\s*["'][^"']*["']/gi, '')
     // Remove javascript: protocol
     .replace(/javascript:/gi, '')
@@ -32,7 +35,7 @@ export function sanitizeHTML(input: string): string {
  * Removes control characters and normalizes whitespace
  */
 export function sanitizeText(input: string): string {
-  if (!input) return '';
+  if (typeof input !== 'string') return '';
   
   return input
     // Remove null bytes
@@ -48,7 +51,7 @@ export function sanitizeText(input: string): string {
  * Sanitize email address
  */
 export function sanitizeEmail(email: string): string {
-  if (!email) return '';
+  if (typeof email !== 'string') return '';
   
   return email
     .toLowerCase()
@@ -62,7 +65,7 @@ export function sanitizeEmail(email: string): string {
  * Keeps only digits, spaces, parentheses, hyphens, and plus sign
  */
 export function sanitizePhone(phone: string): string {
-  if (!phone) return '';
+  if (typeof phone !== 'string') return '';
   
   return phone
     .trim()
@@ -74,10 +77,13 @@ export function sanitizePhone(phone: string): string {
  * Sanitize URL
  */
 export function sanitizeURL(url: string): string {
-  if (!url) return '';
+  if (typeof url !== 'string' || !url) return '';
   
   try {
-    // Parse URL to validate it
+    // Basic prefix check before full parse attempt
+    if (!url.toLowerCase().startsWith('http')) {
+        url = `https://${url}`;
+    }
     const parsed = new URL(url);
     
     // Only allow http and https protocols
@@ -97,7 +103,7 @@ export function sanitizeURL(url: string): string {
  * Removes all non-digit characters
  */
 export function sanitizeSSN(ssn: string): string {
-  if (!ssn) return '';
+  if (typeof ssn !== 'string') return '';
   
   // Keep only digits
   const digits = ssn.replace(/\D/g, '');
@@ -113,7 +119,7 @@ export function sanitizeSSN(ssn: string): string {
 /**
  * Sanitize date input
  */
-export function sanitizeDate(date: string): string | null {
+export function sanitizeDate(date: string | Date | undefined | null): string | null {
   if (!date) return null;
   
   try {
@@ -143,170 +149,154 @@ export function sanitizeInteger(value: any): number | null {
   return num;
 }
 
+// FIX: Removed unsafe generic sanitizeObject and inferType helper functions.
+
 /**
- * Sanitize object recursively
- * Applies appropriate sanitization to each field
+ * FIX: Comprehensive sanitization of consultant data for ALL fields.
  */
-export function sanitizeObject(obj: any, schema?: Record<string, string>): any {
-  if (!obj || typeof obj !== 'object') {
-    return obj;
+export function sanitizeConsultantData(data: any): any {
+  if (!data || typeof data !== 'object') {
+    throw new Error('Invalid consultant data object');
   }
   
   const sanitized: any = {};
   
-  for (const [key, value] of Object.entries(obj)) {
-    if (value === null || value === undefined) {
-      sanitized[key] = value;
-      continue;
-    }
-    
-    // Determine type from schema or infer from value
-    const type = schema?.[key] || inferType(key, value);
-    
-    switch (type) {
-      case 'html':
-        sanitized[key] = sanitizeHTML(String(value));
-        break;
-      case 'email':
-        sanitized[key] = sanitizeEmail(String(value));
-        break;
-      case 'phone':
-        sanitized[key] = sanitizePhone(String(value));
-        break;
-      case 'url':
-        sanitized[key] = sanitizeURL(String(value));
-        break;
-      case 'ssn':
-        sanitized[key] = sanitizeSSN(String(value));
-        break;
-      case 'date':
-        sanitized[key] = sanitizeDate(String(value));
-        break;
-      case 'integer':
-        sanitized[key] = sanitizeInteger(value);
-        break;
-      case 'text':
-      default:
-        if (typeof value === 'string') {
-          sanitized[key] = sanitizeText(value);
-        } else if (typeof value === 'object') {
-          sanitized[key] = sanitizeObject(value, schema);
-        } else {
-          sanitized[key] = value;
-        }
-    }
-  }
-  
-  return sanitized;
-}
-
-/**
- * Infer sanitization type from field name and value
- */
-function inferType(fieldName: string, value: any): string {
-  const lower = fieldName.toLowerCase();
-  
-  if (lower.includes('email')) return 'email';
-  if (lower.includes('phone')) return 'phone';
-  if (lower.includes('url') || lower.includes('website') || lower.includes('link')) return 'url';
-  if (lower.includes('ssn')) return 'ssn';
-  if (lower.includes('date') || lower.includes('time')) return 'date';
-  if (lower.includes('description') || lower.includes('body') || lower.includes('content')) return 'html';
-  if (typeof value === 'number') return 'integer';
-  
-  return 'text';
-}
-
-/**
- * Validate and sanitize consultant data
- */
-export function sanitizeConsultantData(data: any): any {
-  // Pass the raw data through with minimal sanitization
-  const sanitized = { ...data };
-  
-  // Only sanitize mandatory fields
-  if (sanitized.name) sanitized.name = String(sanitized.name).trim();
-  if (sanitized.status) sanitized.status = String(sanitized.status).trim();
-  
-  return sanitized;
-}
-
-/**
- * Validate and sanitize requirement data
- */
-export function sanitizeRequirementData(data: any): any {
   try {
-    if (!data || typeof data !== 'object') {
-      throw new Error('Invalid data object');
-    }
+    sanitized.status = sanitizeText(data.status);
+    sanitized.name = sanitizeText(data.name);
+    sanitized.visaStatus = sanitizeText(data.visaStatus);
+    sanitized.dateOfBirth = sanitizeDate(data.dateOfBirth);
+    sanitized.address = sanitizeText(data.address);
+    sanitized.email = sanitizeEmail(data.email);
+    sanitized.phone = sanitizePhone(data.phone);
+    sanitized.timezone = sanitizeText(data.timezone);
+    sanitized.degreeName = sanitizeText(data.degreeName);
+    sanitized.university = sanitizeText(data.university);
+    sanitized.yearOfPassing = sanitizeText(data.yearOfPassing);
+    sanitized.ssn = sanitizeSSN(data.ssn);
+    sanitized.howDidYouGetVisa = sanitizeText(data.howDidYouGetVisa);
+    sanitized.yearCameToUS = sanitizeText(data.yearCameToUS);
+    sanitized.countryOfOrigin = sanitizeText(data.countryOfOrigin);
+    sanitized.whyLookingForNewJob = sanitizeText(data.whyLookingForNewJob);
     
-    const sanitized = { ...data };
-    
-    // Only sanitize mandatory fields to ensure they're not empty
-    if (sanitized.jobTitle) sanitized.jobTitle = String(sanitized.jobTitle).trim();
-    if (sanitized.consultantId) sanitized.consultantId = String(sanitized.consultantId).trim();
-    if (sanitized.appliedFor) sanitized.appliedFor = String(sanitized.appliedFor).trim();
-    if (sanitized.status) sanitized.status = String(sanitized.status).trim();
-    if (sanitized.completeJobDescription) sanitized.completeJobDescription = String(sanitized.completeJobDescription).trim();
-    
+    // Non-content fields (IDs, etc.) - assume string IDs are safe for simple trimming/text sanitization if passed
+    if (data.displayId) sanitized.displayId = sanitizeText(data.displayId);
+    if (data.createdBy) sanitized.createdBy = sanitizeText(data.createdBy);
+
     return sanitized;
   } catch (error) {
-    // Import logger dynamically to avoid circular dependencies
-    import('../utils/logger').then(({ logger }) => {
-      logger.error({ error }, 'Error sanitizing requirement data');
-    }).catch(() => {
-      console.error('Error sanitizing requirement data:', error);
-    });
+    logger.error({ error, data }, 'Error sanitizing consultant data');
+    throw new Error('Failed to sanitize consultant data: ' + (error instanceof Error ? error.message : 'Unknown error'));
+  }
+}
+
+/**
+ * FIX: Comprehensive sanitization of requirement data for ALL fields.
+ */
+export function sanitizeRequirementData(data: any): any {
+  if (!data || typeof data !== 'object') {
+    throw new Error('Invalid requirement data object');
+  }
+    
+  const sanitized: any = {};
+  
+  try {
+    // Mandatory fields
+    sanitized.consultantId = sanitizeText(data.consultantId);
+    sanitized.jobTitle = sanitizeText(data.jobTitle);
+    sanitized.appliedFor = sanitizeText(data.appliedFor);
+    sanitized.completeJobDescription = sanitizeText(data.completeJobDescription); // FIX: Should use sanitizeText for job desc, or sanitizeHTML if rich text is permitted
+
+    // Optional fields
+    sanitized.status = sanitizeText(data.status);
+    sanitized.nextStep = sanitizeText(data.nextStep);
+    sanitized.rate = sanitizeText(data.rate);
+    sanitized.remote = sanitizeText(data.remote);
+    sanitized.duration = sanitizeText(data.duration);
+    
+    // Website/Email/Company fields
+    sanitized.clientCompany = sanitizeText(data.clientCompany);
+    sanitized.impName = sanitizeText(data.impName);
+    sanitized.clientWebsite = sanitizeURL(data.clientWebsite);
+    sanitized.impWebsite = sanitizeURL(data.impWebsite);
+    sanitized.vendorCompany = sanitizeText(data.vendorCompany);
+    sanitized.vendorWebsite = sanitizeURL(data.vendorWebsite);
+    sanitized.vendorPersonName = sanitizeText(data.vendorPersonName);
+    sanitized.vendorPhone = sanitizePhone(data.vendorPhone);
+    sanitized.vendorEmail = sanitizeEmail(data.vendorEmail);
+    sanitized.primaryTechStack = sanitizeText(data.primaryTechStack);
+    
+    // Date/Time fields
+    sanitized.gotRequirement = sanitizeDate(data.gotRequirement);
+    
+    // Non-content fields
+    if (data.displayId) sanitized.displayId = sanitizeText(data.displayId);
+    if (data.createdBy) sanitized.createdBy = sanitizeText(data.createdBy);
+
+    // Marketing Comments (if object/array, needs recursive sanitization)
+    if (Array.isArray(data.marketingComments)) {
+      sanitized.marketingComments = data.marketingComments.map((comment: any) => ({
+        ...comment,
+        comment: sanitizeText(comment.comment),
+        userId: sanitizeText(comment.userId),
+        // timestamp is assumed safe if generated server-side or sanitized as date
+      }));
+    } else if (data.marketingComments) {
+      // Set to an empty array if invalid format to be safe
+      sanitized.marketingComments = [];
+    }
+
+    return sanitized;
+  } catch (error) {
+    logger.error({ error, data }, 'Error sanitizing requirement data');
     throw new Error('Failed to sanitize requirement data: ' + (error instanceof Error ? error.message : 'Unknown error'));
   }
 }
 
 /**
- * Validate and sanitize interview data
+ * FIX: Comprehensive sanitization of interview data for ALL fields.
  */
 export function sanitizeInterviewData(data: any): any {
+  if (!data || typeof data !== 'object') {
+    throw new Error('Invalid interview data object');
+  }
+  
+  const sanitized: any = {};
+
   try {
-    const sanitized = { ...data };
+    // Mandatory fields
+    sanitized.requirementId = sanitizeText(data.requirementId);
+    sanitized.consultantId = sanitizeText(data.consultantId);
+    sanitized.interviewDate = sanitizeDate(data.interviewDate);
+    sanitized.interviewTime = sanitizeText(data.interviewTime);
+
+    // Optional fields
+    sanitized.timezone = sanitizeText(data.timezone || 'EST');
+    sanitized.interviewType = sanitizeText(data.interviewType);
+    sanitized.status = sanitizeText(data.status || 'Confirmed');
+    sanitized.marketingPersonId = sanitizeText(data.marketingPersonId);
+    sanitized.vendorCompany = sanitizeText(data.vendorCompany);
+    sanitized.interviewWith = sanitizeText(data.interviewWith);
+    sanitized.result = sanitizeText(data.result);
+    sanitized.round = sanitizeText(data.round);
+    sanitized.mode = sanitizeText(data.mode);
+    sanitized.meetingType = sanitizeText(data.meetingType);
+    sanitized.duration = sanitizeText(data.duration);
+    sanitized.subjectLine = sanitizeText(data.subjectLine);
+    sanitized.interviewer = sanitizeText(data.interviewer);
+    sanitized.interviewLink = sanitizeURL(data.interviewLink);
+    sanitized.interviewFocus = sanitizeText(data.interviewFocus);
+    sanitized.specialNote = sanitizeText(data.specialNote);
+    sanitized.jobDescription = sanitizeText(data.jobDescription); // Should use sanitizeText/HTML based on storage format
+    sanitized.feedbackNotes = sanitizeText(data.feedbackNotes);
     
-    // Sanitize mandatory fields
-    if (sanitized.requirementId) {
-      sanitized.requirementId = String(sanitized.requirementId).trim();
-    }
-    
-    if (sanitized.consultantId) {
-      sanitized.consultantId = String(sanitized.consultantId).trim();
-    }
-    
-    // Handle interview date
-    if (sanitized.interviewDate) {
-      const date = new Date(sanitized.interviewDate);
-      if (isNaN(date.getTime())) {
-        throw new Error('Invalid interview date format');
-      }
-      sanitized.interviewDate = date.toISOString();
-    }
-    
-    if (sanitized.interviewTime) {
-      sanitized.interviewTime = String(sanitized.interviewTime).trim();
-    }
-    
-    // Set defaults for optional fields
-    if (!sanitized.timezone) {
-      sanitized.timezone = 'EST';
-    }
-    
-    if (!sanitized.status) {
-      sanitized.status = 'Confirmed';
-    }
+    // Non-content fields
+    if (data.displayId) sanitized.displayId = sanitizeText(data.displayId);
+    if (data.createdBy) sanitized.createdBy = sanitizeText(data.createdBy);
     
     return sanitized;
   } catch (error) {
-    // Import logger dynamically to avoid circular dependencies
-    import('../utils/logger').then(({ logger }) => {
-      logger.error({ error, data }, 'Error sanitizing interview data');
-    }).catch(() => {
-      console.error('Error sanitizing interview data:', error);
-    });
+    logger.error({ error, data }, 'Error sanitizing interview data');
     throw new Error('Failed to sanitize interview data: ' + (error instanceof Error ? error.message : 'Unknown error'));
   }
 }
