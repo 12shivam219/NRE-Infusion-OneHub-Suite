@@ -365,38 +365,34 @@ function validateRequirementId(id: string): boolean {
   return pattern.test(id);
 }
 
-// FIX #6: Added transaction logic to ensure atomic ID generation for a single creation.
-// Note: This logic for single creation is simpler and less prone to contention than bulk.
+// FIX: Refactored generateRequirementDisplayId to remove transactions for Neon HTTP compatibility.
 async function generateRequirementDisplayId(): Promise<string> {
-  return await executeTransaction(async (tx) => {
-    const today = new Date();
-    const year = today.getFullYear();
-    const month = (today.getMonth() + 1).toString().padStart(2, '0');
-    const prefix = `REQ-${year}${month}`;
+  const today = new Date();
+  const year = today.getFullYear();
+  const month = (today.getMonth() + 1).toString().padStart(2, '0');
+  const prefix = `REQ-${year}${month}`;
 
-    // Use sql fragment to lock the table row/index if possible, or perform a manual select FOR UPDATE
-    const [latestIdRow] = await tx
-      .select({ 
-        maxId: sql<string>`max(display_id)` 
-      })
-      .from(requirements)
-      .where(
-        sql`display_id LIKE ${prefix + '-%'}`
-      )
-      .for('update'); // Add FOR UPDATE for row-level lock on index/rows that match the criteria
+  // Use direct db query (non-transactional), removing executeTransaction and .for('update')
+  const [latestIdRow] = await db
+    .select({ 
+      maxId: sql<string>`max(display_id)` 
+    })
+    .from(requirements)
+    .where(
+      sql`display_id LIKE ${prefix + '-%'}`
+    );
 
-    let sequence = 1;
-    if (latestIdRow.maxId) {
-      const parts = latestIdRow.maxId.split('-');
-      if (parts.length === 3 && parts[1].length === 6 && parts[2].length === 4) {
-          const lastSequence = parseInt(parts[2]);
-          sequence = lastSequence + 1;
-      }
+  let sequence = 1;
+  if (latestIdRow.maxId) {
+    const parts = latestIdRow.maxId.split('-');
+    if (parts.length === 3 && parts[1].length === 6 && parts[2].length === 4) {
+      const lastSequence = parseInt(parts[2]);
+      sequence = lastSequence + 1;
     }
+  }
 
-    // Generate new ID with padded sequence number
-    return `${prefix}-${sequence.toString().padStart(4, '0')}`;
-  });
+  // Generate new ID with padded sequence number
+  return `${prefix}-${sequence.toString().padStart(4, '0')}`;
 }
 
 async function generateInterviewDisplayId(): Promise<string> {
@@ -635,7 +631,7 @@ router.patch('/consultants/:id', conditionalCSRF, writeOperationsRateLimiter, as
     }
     
     // Use transaction for atomic operation
-    const result = await executeTransaction(async (tx) => {
+    await executeTransaction(async (tx) => {
       // 2. Update consultant
       const updateData = insertConsultantSchema.partial().parse(sanitizedData);
       const [updatedConsultant] = await tx
@@ -684,18 +680,29 @@ router.patch('/consultants/:id', conditionalCSRF, writeOperationsRateLimiter, as
       return { updatedConsultant, finalProjects };
     });
     
+    // Re-fetch the final state for the response (due to missing result from transaction block)
+    const updatedConsultant = await db.query.consultants.findFirst({ where: eq(consultants.id, id) });
+    const finalProjects = await db.query.consultantProjects.findMany({ 
+        where: eq(consultantProjects.consultantId, id),
+        orderBy: [desc(consultantProjects.createdAt)]
+    });
+    
+    if (!updatedConsultant) {
+        return res.status(404).json({ message: 'Consultant not found after update' });
+    }
+
     // Log audit trail
     await logUpdate(
       req.user!.id,
       'consultant',
       id,
       oldConsultant,
-      result.updatedConsultant,
+      updatedConsultant,
       req
     );
     
     // FIX #3 (Update): Decrypt and mask SSN before sending response
-    const responseData = { ...result.updatedConsultant, projects: result.finalProjects };
+    const responseData = { ...updatedConsultant, projects: finalProjects };
     if (responseData.ssn) {
       try {
         responseData.ssn = maskSSN(decrypt(responseData.ssn));
@@ -875,7 +882,7 @@ router.post('/requirements', conditionalCSRF, writeOperationsRateLimiter, asyncH
     // Single requirement - sanitize input
     const sanitizedData = sanitizeRequirementData(req.body);
     
-    // Generate sequential display ID inside a transaction to ensure atomicity
+    // Generate sequential display ID without transaction (FIX for Neon HTTP)
     const displayId = await generateRequirementDisplayId();
     
     // FIX #7: Validate the generated ID
@@ -900,53 +907,50 @@ router.post('/requirements', conditionalCSRF, writeOperationsRateLimiter, asyncH
       return res.status(400).json({ message: 'Requirements array is required for bulk creation' });
     }
 
-    // FIX #6: Use a transaction for atomic bulk creation to prevent ID race conditions
-    const newRequirements = await executeTransaction(async (tx) => {
-      const today = new Date();
-      const year = today.getFullYear();
-      const month = (today.getMonth() + 1).toString().padStart(2, '0');
-      const prefix = `REQ-${year}${month}`;
+    // FIX for Neon HTTP driver: Removed transaction wrapper and .for('update').
+    const today = new Date();
+    const year = today.getFullYear();
+    const month = (today.getMonth() + 1).toString().padStart(2, '0');
+    const prefix = `REQ-${year}${month}`;
 
-      // Get the starting sequence number atomically using a lock/select FOR UPDATE
-      const [latestIdRow] = await tx
-        .select({ 
-          maxId: sql<string>`max(display_id)` 
-        })
-        .from(requirements)
-        .where(
-          sql`display_id LIKE ${prefix + '-%'}`
-        )
-        .for('update');
+    // Get the starting sequence number without an explicit lock/transaction
+    const [latestIdRow] = await db
+      .select({ 
+        maxId: sql<string>`max(display_id)` 
+      })
+      .from(requirements)
+      .where(
+        sql`display_id LIKE ${prefix + '-%'}`
+      );
+    
+    let sequence = 1;
+    if (latestIdRow.maxId) {
+      const parts = latestIdRow.maxId.split('-');
+      if (parts.length === 3 && parts[1].length === 6 && parts[2].length === 4) {
+          sequence = parseInt(parts[2]) + 1;
+      }
+    }
+
+    // Create requirements with sequential IDs
+    const requirementDataArray = reqArray.map((reqData, index) => {
+      const sanitizedData = sanitizeRequirementData(reqData);
+      const displayId = `${prefix}-${(sequence + index).toString().padStart(4, '0')}`;
       
-      let sequence = 1;
-      if (latestIdRow.maxId) {
-        const parts = latestIdRow.maxId.split('-');
-        if (parts.length === 3 && parts[1].length === 6 && parts[2].length === 4) {
-            sequence = parseInt(parts[2]) + 1;
-        }
+      // FIX #7: Validate generated ID for bulk creation too
+      if (!validateRequirementId(displayId)) {
+        throw new Error(`Invalid requirement ID format generated during bulk insert: ${displayId}`);
       }
 
-      // Create requirements with sequential IDs
-      const requirementDataArray = reqArray.map((reqData, index) => {
-        const sanitizedData = sanitizeRequirementData(reqData);
-        const displayId = `${prefix}-${(sequence + index).toString().padStart(4, '0')}`;
-        
-        // FIX #7: Validate generated ID for bulk creation too
-        if (!validateRequirementId(displayId)) {
-          throw new Error(`Invalid requirement ID format generated during bulk insert: ${displayId}`);
-        }
-
-        return insertRequirementSchema.parse({
-          ...sanitizedData,
-          displayId,
-          createdBy: req.user!.id,
-          marketingComments: []
-        });
+      return insertRequirementSchema.parse({
+        ...sanitizedData,
+        displayId,
+        createdBy: req.user!.id,
+        marketingComments: []
       });
-
-      const insertedRequirements = await tx.insert(requirements).values(requirementDataArray as any).returning();
-      return insertedRequirements;
     });
+
+    // Perform the bulk insert using the direct db instance
+    const newRequirements = await db.insert(requirements).values(requirementDataArray as any).returning();
 
     // Log bulk creation
     for (const newReq of newRequirements) {
@@ -2076,7 +2080,7 @@ router.post('/emails/send', conditionalCSRF, emailRateLimiter, upload.array('att
           messageId: message.id,
           fileName: att.fileName,
           fileSize: att.fileSize,
-          mimeType: att.mimeType,
+          mimeType: att.mimetype,
           fileContent: att.fileContent,
         }))
       );
