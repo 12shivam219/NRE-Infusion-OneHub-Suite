@@ -15,8 +15,18 @@ interface Interview {
   mode?: string;
   timezone?: string;
   interviewerName?: string;
+  interviewWith?: string;
   meetingLink?: string;
   notes?: string;
+  interviewType?: string;
+  meetingType?: string;
+  duration?: string;
+  // Additional optional fields used when viewing interview details
+  interviewFocus?: string;
+  specialNote?: string;
+  jobDescription?: string;
+  feedbackNotes?: string;
+  result?: string;
 }
 
 interface InterviewFormData {
@@ -541,93 +551,180 @@ export default function InterviewsSection() {
       {/* View Interview Dialog */}
       {viewInterview && (
         <Dialog open={!!viewInterview} onOpenChange={() => setViewInterview(null)}>
-          <DialogContent className="max-w-3xl max-h-[90vh] overflow-y-auto">
+          <DialogContent className="max-w-4xl max-h-[90vh] overflow-y-auto">
             <DialogHeader>
               <DialogTitle className="flex items-center space-x-2">
                 <Calendar size={20} />
                 <span>{viewInterview.jobTitle || 'Interview Details'}</span>
+                {viewInterview.displayId && (
+                  <Badge variant="outline" className="ml-2">
+                    ID: {viewInterview.displayId}
+                  </Badge>
+                )}
               </DialogTitle>
-              <DialogDescription>View interview details</DialogDescription>
+              <DialogDescription>Comprehensive interview information</DialogDescription>
             </DialogHeader>
 
-            <div className="space-y-4">
-              <div className="grid grid-cols-2 gap-4">
-                <div>
-                  <label className="text-sm font-semibold text-slate-700">Status</label>
-                  <p className="text-slate-600">
-                    <Badge className={getStatusColor(viewInterview.status)}>
-                      {viewInterview.status}
-                    </Badge>
-                  </p>
-                </div>
-                <div>
-                  <label className="text-sm font-semibold text-slate-700">Round</label>
-                  <p className="text-slate-600">{viewInterview.round || 'N/A'}</p>
-                </div>
-                <div>
-                  <label className="text-sm font-semibold text-slate-700">Consultant Name</label>
-                  <p className="text-slate-600">{viewInterview.consultantName || 'N/A'}</p>
-                </div>
-                <div>
-                  <label className="text-sm font-semibold text-slate-700">Vendor Company</label>
-                  <p className="text-slate-600">{viewInterview.vendorCompany || 'N/A'}</p>
-                </div>
-                <div>
-                  <label className="text-sm font-semibold text-slate-700">Interview Date</label>
-                  <p className="text-slate-600">
-                    {viewInterview.interviewDate
-                      ? new Date(viewInterview.interviewDate).toLocaleDateString()
-                      : 'N/A'}
-                  </p>
-                </div>
-                <div>
-                  <label className="text-sm font-semibold text-slate-700">Interview Time</label>
-                  <p className="text-slate-600">{viewInterview.interviewTime || 'N/A'}</p>
-                </div>
-                <div>
-                  <label className="text-sm font-semibold text-slate-700">Mode</label>
-                  <p className="text-slate-600">{viewInterview.mode || 'N/A'}</p>
-                </div>
-                <div>
-                  <label className="text-sm font-semibold text-slate-700">Timezone</label>
-                  <p className="text-slate-600">{viewInterview.timezone || 'N/A'}</p>
-                </div>
-              </div>
-
-              {viewInterview.interviewerName && (
-                <div>
-                  <label className="text-sm font-semibold text-slate-700">Interviewer</label>
-                  <p className="text-slate-600">{viewInterview.interviewerName}</p>
-                </div>
-              )}
-
-              {viewInterview.meetingLink && (
-                <div>
-                  <label className="text-sm font-semibold text-slate-700">Meeting Link</label>
-                  <p className="text-slate-600">
-                    <a
-                      href={viewInterview.meetingLink}
-                      target="_blank"
-                      rel="noopener noreferrer"
-                      className="text-blue-600 hover:underline"
-                    >
-                      {viewInterview.meetingLink}
-                    </a>
-                  </p>
-                </div>
-              )}
-
-              {viewInterview.notes && (
-                <div>
-                  <label className="text-sm font-semibold text-slate-700">Notes</label>
-                  <div className="mt-2 p-4 bg-slate-50 rounded-lg border border-slate-200 whitespace-pre-wrap text-sm text-slate-600">
-                    {viewInterview.notes}
+            <div className="space-y-6">
+              {/* Basic Information Section */}
+              <Card>
+                <CardHeader>
+                  <CardTitle className="text-base">Basic Information</CardTitle>
+                </CardHeader>
+                <CardContent className="grid grid-cols-2 md:grid-cols-3 gap-4">
+                  <div>
+                    <label className="text-sm font-semibold text-slate-700">Status</label>
+                    <p className="text-slate-600 mt-1">
+                      <Badge className={getStatusColor(viewInterview.status)}>
+                        {viewInterview.status}
+                      </Badge>
+                    </p>
                   </div>
-                </div>
-              )}
+                  <div>
+                    <label className="text-sm font-semibold text-slate-700">Round</label>
+                    <p className="text-slate-600 mt-1">{viewInterview.round || 'N/A'}</p>
+                  </div>
+                  <div>
+                    <label className="text-sm font-semibold text-slate-700">Interview Type</label>
+                    <p className="text-slate-600 mt-1">{viewInterview.interviewType || 'N/A'}</p>
+                  </div>
+                  <div>
+                    <label className="text-sm font-semibold text-slate-700">Interview Date</label>
+                    <p className="text-slate-600 mt-1">
+                      {viewInterview.interviewDate
+                        ? new Date(viewInterview.interviewDate).toLocaleDateString()
+                        : 'N/A'}
+                    </p>
+                  </div>
+                  <div>
+                    <label className="text-sm font-semibold text-slate-700">Interview Time</label>
+                    <p className="text-slate-600 mt-1">{viewInterview.interviewTime || 'N/A'}</p>
+                  </div>
+                  <div>
+                    <label className="text-sm font-semibold text-slate-700">Timezone</label>
+                    <p className="text-slate-600 mt-1">{viewInterview.timezone || 'N/A'}</p>
+                  </div>
+                </CardContent>
+              </Card>
+
+              {/* Participant Information */}
+              <Card>
+                <CardHeader>
+                  <CardTitle className="text-base">Participant Information</CardTitle>
+                </CardHeader>
+                <CardContent className="grid grid-cols-2 md:grid-cols-3 gap-4">
+                  <div>
+                    <label className="text-sm font-semibold text-slate-700">Consultant Name</label>
+                    <p className="text-slate-600 mt-1">{viewInterview.consultantName || 'N/A'}</p>
+                  </div>
+                  <div>
+                    <label className="text-sm font-semibold text-slate-700">Interviewer</label>
+                    <p className="text-slate-600 mt-1">{viewInterview.interviewerName || 'N/A'}</p>
+                  </div>
+                  <div>
+                    <label className="text-sm font-semibold text-slate-700">Interview With</label>
+                    <p className="text-slate-600 mt-1">{viewInterview.interviewWith || 'N/A'}</p>
+                  </div>
+                  <div>
+                    <label className="text-sm font-semibold text-slate-700">Vendor Company</label>
+                    <p className="text-slate-600 mt-1">{viewInterview.vendorCompany || 'N/A'}</p>
+                  </div>
+                </CardContent>
+              </Card>
+
+              {/* Meeting Details */}
+              <Card>
+                <CardHeader>
+                  <CardTitle className="text-base">Meeting Details</CardTitle>
+                </CardHeader>
+                <CardContent className="grid grid-cols-2 md:grid-cols-3 gap-4">
+                  <div>
+                    <label className="text-sm font-semibold text-slate-700">Mode</label>
+                    <p className="text-slate-600 mt-1">{viewInterview.mode || 'N/A'}</p>
+                  </div>
+                  <div>
+                    <label className="text-sm font-semibold text-slate-700">Meeting Type</label>
+                    <p className="text-slate-600 mt-1">{viewInterview.meetingType || 'N/A'}</p>
+                  </div>
+                  <div>
+                    <label className="text-sm font-semibold text-slate-700">Duration</label>
+                    <p className="text-slate-600 mt-1">{viewInterview.duration || 'N/A'}</p>
+                  </div>
+                  {viewInterview.meetingLink && (
+                    <div className="col-span-full">
+                      <label className="text-sm font-semibold text-slate-700">Meeting Link</label>
+                      <p className="text-slate-600 mt-1">
+                        <a
+                          href={viewInterview.meetingLink}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="text-blue-600 hover:underline"
+                        >
+                          {viewInterview.meetingLink}
+                        </a>
+                      </p>
+                    </div>
+                  )}
+                </CardContent>
+              </Card>
+
+              {/* Additional Information */}
+              <Card>
+                <CardHeader>
+                  <CardTitle className="text-base">Additional Information</CardTitle>
+                </CardHeader>
+                <CardContent className="space-y-4">
+                  {viewInterview.interviewFocus && (
+                    <div>
+                      <label className="text-sm font-semibold text-slate-700">Interview Focus</label>
+                      <div className="mt-2 p-4 bg-slate-50 rounded-lg border border-slate-200 whitespace-pre-wrap text-sm text-slate-600">
+                        {viewInterview.interviewFocus}
+                      </div>
+                    </div>
+                  )}
+                  {viewInterview.specialNote && (
+                    <div>
+                      <label className="text-sm font-semibold text-slate-700">Special Notes</label>
+                      <div className="mt-2 p-4 bg-slate-50 rounded-lg border border-slate-200 whitespace-pre-wrap text-sm text-slate-600">
+                        {viewInterview.specialNote}
+                      </div>
+                    </div>
+                  )}
+                  {viewInterview.jobDescription && (
+                    <div>
+                      <label className="text-sm font-semibold text-slate-700">Job Description</label>
+                      <div className="mt-2 p-4 bg-slate-50 rounded-lg border border-slate-200 whitespace-pre-wrap text-sm text-slate-600">
+                        {viewInterview.jobDescription}
+                      </div>
+                    </div>
+                  )}
+                  {viewInterview.notes && (
+                    <div>
+                      <label className="text-sm font-semibold text-slate-700">General Notes</label>
+                      <div className="mt-2 p-4 bg-slate-50 rounded-lg border border-slate-200 whitespace-pre-wrap text-sm text-slate-600">
+                        {viewInterview.notes}
+                      </div>
+                    </div>
+                  )}
+                  {viewInterview.feedbackNotes && (
+                    <div>
+                      <label className="text-sm font-semibold text-slate-700">Feedback Notes</label>
+                      <div className="mt-2 p-4 bg-slate-50 rounded-lg border border-slate-200 whitespace-pre-wrap text-sm text-slate-600">
+                        {viewInterview.feedbackNotes}
+                      </div>
+                    </div>
+                  )}
+                  {viewInterview.result && (
+                    <div>
+                      <label className="text-sm font-semibold text-slate-700">Result</label>
+                      <p className="text-slate-600 mt-1">{viewInterview.result}</p>
+                    </div>
+                  )}
+                </CardContent>
+              </Card>
             </div>
 
-            <DialogFooter>
+            <DialogFooter className="mt-6">
               <Button variant="outline" onClick={() => setViewInterview(null)}>
                 Close
               </Button>
@@ -636,9 +733,10 @@ export default function InterviewsSection() {
                   setViewInterview(null);
                   handleEditInterview(viewInterview);
                 }}
+                className="bg-blue-600 hover:bg-blue-700"
               >
                 <EditIcon size={16} className="mr-2" />
-                Edit
+                Edit Interview
               </Button>
             </DialogFooter>
           </DialogContent>

@@ -799,7 +799,7 @@ export const insertInterviewSchema = z.object({
   interviewType: z.string().optional(),
   status: z.string().optional().default("Confirmed"),
   consultantId: z.string().optional(), // Now optional based on DB fix
-  marketingPersonId: z.string().optional(),
+  marketingPersonId: z.string().nullable().optional(),
   vendorCompany: z.string().optional(),
   interviewWith: z.string().optional(),
   result: z.string().optional(),

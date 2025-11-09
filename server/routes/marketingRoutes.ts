@@ -1046,7 +1046,72 @@ router.get('/interviews', async (req, res) => {
     if (status && status !== 'All') {
       whereConditions.push(eq(interviews.status, status as string));
     }
-    // Consultant filtering removed
+    
+    // Query builder for interviews with relations
+    const query = db.query.interviews.findMany({
+      where: whereConditions.length > 0 ? and(...whereConditions) : undefined,
+      limit: limitNum,
+      offset: (pageNum - 1) * limitNum,
+      orderBy: [desc(interviews.interviewDate)],
+      with: {
+        consultant: {
+          columns: {
+            name: true
+          }
+        },
+        requirement: {
+          columns: {
+            displayId: true,
+            jobTitle: true
+          }
+        },
+        marketingPerson: {
+          columns: {
+            firstName: true,
+            lastName: true,
+            email: true
+          }
+        }
+      }
+    });
+
+    // Execute query and transform results
+    const interviewList = await query;
+    const transformedInterviews = interviewList.map(interview => ({
+      ...interview,
+      consultantName: Array.isArray(interview.consultant) ? interview.consultant[0]?.name || 'N/A' : interview.consultant?.name || 'N/A',
+      jobTitle: Array.isArray(interview.requirement) ? 
+        interview.requirement[0]?.jobTitle || 'Untitled Position' :
+        interview.requirement?.jobTitle || 'Untitled Position',
+      displayRequirementId: Array.isArray(interview.requirement) ? interview.requirement[0]?.displayId : interview.requirement?.displayId,
+      interviewerName: interview.interviewer || 'N/A',
+      marketingPersonName: interview.marketingPerson ? 
+        Array.isArray(interview.marketingPerson) ?
+          (interview.marketingPerson[0]?.firstName && interview.marketingPerson[0]?.lastName ? 
+            `${interview.marketingPerson[0].firstName} ${interview.marketingPerson[0].lastName}`.trim() :
+            interview.marketingPerson[0]?.email) :
+          (interview.marketingPerson.firstName && interview.marketingPerson.lastName ?
+            `${interview.marketingPerson.firstName} ${interview.marketingPerson.lastName}`.trim() :
+            interview.marketingPerson.email) :
+        'N/A'
+    }));
+
+    // Get total count for pagination
+    const totalCountResult = await db.select({ count: sql<number>`count(*)` })
+      .from(interviews)
+      .where(whereConditions.length > 0 ? and(...whereConditions) : undefined);
+    const totalInterviews = Number(totalCountResult[0].count);
+
+    res.json({
+      data: transformedInterviews,
+      pagination: {
+        total: totalInterviews,
+        page: pageNum,
+        pageSize: limitNum,
+        totalPages: Math.ceil(totalInterviews / limitNum)
+      }
+    });
+    
     if (requirementId) {
       whereConditions.push(eq(interviews.requirementId, requirementId as string));
     }
@@ -1135,6 +1200,13 @@ router.post('/interviews', conditionalCSRF, writeOperationsRateLimiter, async (r
     // Sanitize input first
     const sanitizedData = sanitizeInterviewData(req.body);
     
+    // FIX Foreign Key Violation (23503): Convert empty strings for optional FKs to null
+    // The database does not allow an empty string to violate the FK constraint, 
+    // even though the column permits NULL.
+    if (sanitizedData.marketingPersonId === "") {
+      sanitizedData.marketingPersonId = null;
+    }
+
     // Manual checks for existence of required IDs (rely on FK constraint for existence validation)
     if (!sanitizedData.requirementId || !sanitizedData.consultantId) {
       return res.status(400).json({ 
@@ -1172,6 +1244,7 @@ router.post('/interviews', conditionalCSRF, writeOperationsRateLimiter, async (r
       consultantId: sanitizedData.consultantId,
       interviewDate: parsedInterviewDate as Date,
       interviewTime: sanitizedData.interviewTime,
+      marketingPersonId: sanitizedData.marketingPersonId, // Use the potentially nullified ID
       displayId,
       createdBy: req.user!.id
     });
@@ -1207,11 +1280,19 @@ router.patch('/interviews/:id', conditionalCSRF, writeOperationsRateLimiter, asy
     }
     
     // Sanitize input
-    const sanitizedData = sanitizeInterviewData(req.body);
-    let updateData = insertInterviewSchema.partial().parse(sanitizedData);
-    
-    // FIX: Unified date parsing/validation logic
-    if (updateData.interviewDate) {
+        const sanitizedData = sanitizeInterviewData(req.body);
+        let updateData = insertInterviewSchema.partial().parse(sanitizedData);
+        
+        // FIX: Convert empty strings for optional FKs to undefined to match schema types
+        if (updateData.marketingPersonId === "") {
+          updateData.marketingPersonId = undefined;
+        }
+        if (updateData.consultantId === "") {
+          updateData.consultantId = undefined;
+        }
+        
+        // FIX: Unified date parsing/validation logic
+        if (updateData.interviewDate) {
       let parsedInterviewDate = updateData.interviewDate;
       if (typeof parsedInterviewDate === 'string') {
           const date = new Date(parsedInterviewDate);
@@ -2080,7 +2161,7 @@ router.post('/emails/send', conditionalCSRF, emailRateLimiter, upload.array('att
           messageId: message.id,
           fileName: att.fileName,
           fileSize: att.fileSize,
-          mimeType: att.mimetype,
+          mimeType: att.mimeType,
           fileContent: att.fileContent,
         }))
       );
