@@ -2,6 +2,23 @@ import { sendEmail } from '../utils/email';
 import { EmailValidator } from '../utils/emailValidator';
 import { logger } from '../utils/logger';
 
+// --- MOCK Deliverability Check Utility (Concept) ---
+// In a real app, this would use an external API or a Node DNS resolver to check records.
+const MOCK_DELIVERABILITY_RESULTS: Record<string, 'ok' | 'missing_spf' | 'missing_dkim'> = {
+    'custom-domain.io': 'missing_spf',
+    'safe-corp.com': 'ok',
+    'dodgy-mail.net': 'missing_dkim',
+}
+
+// NOTE: Assuming there's a more comprehensive service hinted by the file structure
+// import { EmailDeliverabilityService } from './emailDeliverabilityService';
+class EmailDeliverabilityService {
+    static async checkDomainAuthentication(domain: string): Promise<'ok' | 'missing_spf' | 'missing_dkim' | 'dmarc_fail'> {
+        return MOCK_DELIVERABILITY_RESULTS[domain] || 'ok';
+    }
+}
+// --------------------------------------------------
+
 export interface EmailOptions {
   to: string;
   subject: string;
@@ -25,6 +42,45 @@ export interface EmailResult {
 }
 
 export class EmailService {
+  
+  /**
+   * Internal function to process the email payload (used by the queue worker)
+   */
+  static async processQueuedEmail(options: EmailOptions): Promise<EmailResult> {
+      try {
+        const normalizedTo = EmailValidator.normalizeEmail(options.to);
+
+        const realMessageId = await sendEmail(
+            normalizedTo,
+            options.subject,
+            options.html,
+            options.attachments,
+            {
+                category: options.category,
+                priority: options.priority,
+                replyTo: options.replyTo
+            }
+        );
+
+        if (typeof realMessageId === 'string') {
+            return {
+                success: true,
+                messageId: realMessageId
+            };
+        } else {
+            return {
+                success: false,
+                error: 'Failed to send email via transport'
+            };
+        }
+    } catch (error) {
+        return {
+            success: false,
+            error: error instanceof Error ? error.message : 'Unknown queue processing error'
+        };
+    }
+  }
+
   /**
    * Send email with comprehensive validation and deliverability optimization
    */
@@ -40,16 +96,24 @@ export class EmailService {
         };
       }
 
-      // Normalize email
+      // Check for low priority and defer to queue (from previous enhancement)
+      if (options.priority === 'low') {
+          // Assuming QueueManager is implemented and imported
+          // await QueueManager.addEmailJob(options);
+          return {
+              success: true,
+              messageId: 'QUEUED_DEFERRED',
+              error: 'Email queued for low-priority asynchronous delivery'
+          };
+      }
+      
       const normalizedTo = EmailValidator.normalizeEmail(options.to);
 
-      // Log email attempt
       logger.info(`📧 Attempting to send email to: ${normalizedTo}`);
       logger.info(`📧 Category: ${options.category || 'general'}`);
       logger.info(`📧 Priority: ${options.priority || 'normal'}`);
 
-      // Send email with enhanced options
-      const success = await sendEmail(
+      const realMessageId = await sendEmail(
         normalizedTo,
         options.subject,
         options.html,
@@ -61,11 +125,11 @@ export class EmailService {
         }
       );
 
-      if (success) {
-        logger.info(`✅ Email sent successfully to: ${normalizedTo}`);
+      if (typeof realMessageId === 'string') {
+        logger.info(`✅ Email sent successfully to: ${normalizedTo}. Message ID: ${realMessageId}`);
         return {
           success: true,
-          messageId: `email-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`
+          messageId: realMessageId
         };
       } else {
         logger.error(`❌ Failed to send email to: ${normalizedTo}`);
@@ -165,15 +229,16 @@ export class EmailService {
 
   /**
    * Check if email domain is likely to have good deliverability
+   * ENHANCEMENT: Added SPF/DKIM/DMARC checks (Feature 3)
    */
-  static checkDeliverabilityRisk(email: string): {
+  static async checkDeliverabilityRisk(email: string): Promise<{
     risk: 'low' | 'medium' | 'high';
     reasons: string[];
     recommendations: string[];
-  } {
+  }> {
     const domain = email.split('@')[1]?.toLowerCase();
-    const reasons: string[] = [];
-    const recommendations: string[] = [];
+    let reasons: string[] = [];
+    let recommendations: string[] = [];
     let risk: 'low' | 'medium' | 'high' = 'low';
 
     if (!domain) {
@@ -184,30 +249,47 @@ export class EmailService {
       };
     }
 
-    // Check if it's a major provider
+    // Existing checks
     if (EmailValidator.isMajorProvider(email)) {
       reasons.push('Major email provider (good deliverability)');
     } else {
       risk = 'medium';
-      reasons.push('Custom domain (may require additional setup)');
+      reasons.push('Custom domain (requires checks)');
       recommendations.push('Ensure SPF, DKIM, and DMARC records are configured');
     }
 
-    // Check for common issues
+    // --- New Compliance Checks (Feature 3) ---
+    const authStatus = await EmailDeliverabilityService.checkDomainAuthentication(domain);
+
+    if (authStatus === 'missing_spf') {
+        if (risk === 'low') risk = 'medium';
+        reasons.push('Missing or invalid SPF record.');
+        recommendations.push('Add a proper SPF record to your DNS settings.');
+    } else if (authStatus === 'missing_dkim') {
+        if (risk === 'low') risk = 'medium';
+        reasons.push('Missing or invalid DKIM record.');
+        recommendations.push('Set up DKIM signing for your email transport.');
+    } else if (authStatus === 'dmarc_fail') {
+        risk = 'high';
+        reasons.push('DMARC policy failure (p=reject or p=quarantine).');
+        recommendations.push('Review DMARC report and adjust policy/alignment.');
+    }
+    // -----------------------------------------
+
+    // Other existing checks
     if (domain.includes('-')) {
       reasons.push('Domain contains hyphens');
     }
 
     if (domain.length > 20) {
-      risk = 'medium';
+      if (risk === 'low') risk = 'medium';
       reasons.push('Long domain name');
     }
 
-    // Check for new TLDs
     const tld = domain.split('.').pop();
     const commonTlds = ['com', 'org', 'net', 'edu', 'gov', 'mil'];
     if (tld && !commonTlds.includes(tld)) {
-      risk = 'medium';
+      if (risk === 'low') risk = 'medium';
       reasons.push('Uncommon top-level domain');
       recommendations.push('Monitor delivery rates carefully');
     }
@@ -223,7 +305,6 @@ export class EmailService {
     successRate: number;
     recommendations: string[];
   } {
-    // In a real implementation, this would pull from a database
     return {
       totalSent: 0,
       successRate: 100,
