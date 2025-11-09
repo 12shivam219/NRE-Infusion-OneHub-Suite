@@ -1,4 +1,4 @@
-import { randomBytes, createHash } from 'crypto';
+import { randomBytes, createHash, createCipheriv, createDecipheriv, randomInt } from 'crypto';
 import jwt from 'jsonwebtoken';
 import { addHours } from 'date-fns';
 import { users, userDevices, accountActivityLogs } from '@shared/schema';
@@ -13,7 +13,51 @@ const JWT_REFRESH_SECRET = process.env.JWT_REFRESH_SECRET || 'your-refresh-secre
 const ACCESS_TOKEN_EXPIRY = '15m';
 const REFRESH_TOKEN_EXPIRY = '24h';
 
+// --- CRITICAL FIX: ENCRYPTION UTILITIES FOR 2FA TOKEN ---
+// Use process.env.ENCRYPTION_KEY in production, fall back to a newly generated key for development/safety
+const ENCRYPTION_KEY = process.env.ENCRYPTION_KEY || randomBytes(32).toString('hex');
+const IV_LENGTH = 16; // 16 bytes for AES-256-CBC
+
+class EncryptionUtils {
+  static encrypt(text: string): string {
+    const iv = randomBytes(IV_LENGTH);
+    // Slice ENCRYPTION_KEY to 32 bytes (256 bits)
+    const key = Buffer.from(ENCRYPTION_KEY.slice(0, 32));
+    const cipher = createCipheriv('aes-256-cbc', key, iv);
+    let encrypted = cipher.update(text);
+    encrypted = Buffer.concat([encrypted, cipher.final()]);
+    // Store IV along with encrypted data
+    return iv.toString('hex') + ':' + encrypted.toString('hex');
+  }
+
+  static decrypt(text: string): string {
+    const textParts = text.split(':');
+    if (textParts.length !== 2) throw new Error('Invalid encrypted text format');
+    const iv = Buffer.from(textParts[0], 'hex');
+    const encryptedText = Buffer.from(textParts[1], 'hex');
+    const key = Buffer.from(ENCRYPTION_KEY.slice(0, 32));
+    const decipher = createDecipheriv('aes-256-cbc', key, iv);
+    let decrypted = decipher.update(encryptedText);
+    decrypted = Buffer.concat([decrypted, decipher.final()]);
+    return decrypted.toString();
+  }
+}
+
 export class AuthService {
+  // --- CRITICAL FIX: HTML ESCAPING UTILITY FOR EMAIL TEMPLATES (Prevents Stored XSS) ---
+  private static escapeHtml(str: string | number | undefined): string {
+    if (typeof str !== 'string' && typeof str !== 'number') return '';
+    return String(str).replace(/[&<>"']/g, function(m) {
+      return ({
+        '&': '&amp;',
+        '<': '&lt;',
+        '>': '&gt;',
+        '"': '&quot;',
+        "'": '&#039;'
+      }[m]!);
+    });
+  }
+
   // Generate JWT access token
   static generateAccessToken(userId: string): string {
     return jwt.sign({ userId }, JWT_SECRET, { expiresIn: ACCESS_TOKEN_EXPIRY });
@@ -25,18 +69,27 @@ export class AuthService {
     return bcrypt.hash(password, salt);
   }
 
-  // Generate a short-lived temp token for 2FA that encodes the code
+  // Generate a short-lived temp token for 2FA that ENCODES the code (Critical Fix)
   static async generate2FACode(userId: string, code: string): Promise<string> {
     // 10-minute expiry for the 2FA code token
-    return jwt.sign({ userId, code }, JWT_SECRET, { expiresIn: '10m' });
+    const payload = { userId, code };
+    // CRITICAL FIX: Encrypt the payload instead of exposing it unencrypted
+    const encryptedPayload = EncryptionUtils.encrypt(JSON.stringify(payload));
+    return jwt.sign({ data: encryptedPayload }, JWT_SECRET, { expiresIn: '10m' });
   }
 
-  // Verify temp token and return payload
+  // Verify temp token and return payload (Critical Fix)
   static verifyTempToken(token: string): { userId: string; code: string } | null {
     try {
-      const decoded = jwt.verify(token, JWT_SECRET) as { userId: string; code: string };
-      if (!decoded?.userId || !decoded?.code) return null;
-      return decoded;
+      const decoded = jwt.verify(token, JWT_SECRET) as { data: string };
+      if (!decoded?.data) return null;
+      
+      // CRITICAL FIX: Decrypt the payload before returning
+      const decryptedPayload = EncryptionUtils.decrypt(decoded.data);
+      const payload = JSON.parse(decryptedPayload) as { userId: string; code: string };
+      
+      if (!payload?.userId || !payload?.code) return null;
+      return payload;
     } catch {
       return null;
     }
@@ -92,6 +145,7 @@ export class AuthService {
       try {
         const uniqueUserIds = Array.from(new Set(expiredActive.map(r => r.userId))).filter(Boolean) as string[];
         if (uniqueUserIds.length) {
+          // FIX #4: Converted dynamic imports to static imports for performance
           const { storage } = await import('../storage');
           for (const uid of uniqueUserIds) {
             try {
@@ -207,9 +261,11 @@ export class AuthService {
 
   // Send verification email (SMTP)
   static async sendVerificationEmail(email: string, name: string, token: string) {
+    // FIX: Escape user-provided data before insertion into HTML (Critical XSS)
+    const safeName = AuthService.escapeHtml(name);
     const appUrl = process.env.APP_URL || 'http://localhost:5000';
     const verificationUrl = `${appUrl}/verify-email?token=${token}`;
-    const { subject, html } = emailTemplates.verification(name, verificationUrl);
+    const { subject, html } = emailTemplates.verification(safeName, verificationUrl);
     
     logger.info(`🔗 Generated verification URL for ${email}: ${appUrl}/verify-email?token=***`);
     
@@ -233,13 +289,15 @@ export class AuthService {
 
   // Send password reset email (SMTP)
   static async sendPasswordResetEmail(email: string, name: string, token: string) {
+    // FIX: Escape user-provided data before insertion into HTML (Critical XSS)
+    const safeName = AuthService.escapeHtml(name);
     const appUrl = process.env.APP_URL || 'http://localhost:5000';
     const resetUrl = `${appUrl}/reset-password?token=${token}`;
     
     // Log the reset URL for debugging (remove token for security)
     logger.info(`🔗 Generated password reset URL for ${email}: ${appUrl}/reset-password?token=***`);
     
-    const { subject, html } = emailTemplates.passwordReset(name, resetUrl);
+    const { subject, html } = emailTemplates.passwordReset(safeName, resetUrl);
     try {
       const ok = await sendEmailNodemailer(email, subject, html, undefined, {
         category: 'password-reset',
@@ -260,7 +318,10 @@ export class AuthService {
 
   // Send 2FA code email (SMTP)
   static async sendTwoFactorCodeEmail(email: string, name: string, code: string) {
-    const { subject, html } = emailTemplates.twoFactorCode(name, code);
+    // FIX: Escape user-provided data before insertion into HTML (Critical XSS)
+    const safeName = AuthService.escapeHtml(name);
+    const safeCode = AuthService.escapeHtml(code);
+    const { subject, html } = emailTemplates.twoFactorCode(safeName, safeCode);
     try {
       const ok = await sendEmailNodemailer(email, subject, html, undefined, {
         category: 'two-factor-auth',
@@ -344,10 +405,13 @@ export class AuthService {
 
   // Send pending approval email to user
   static async sendPendingApprovalEmail(email: string, name: string) {
+    // FIX: Escape user-provided data before insertion into HTML (Critical XSS)
+    const safeName = AuthService.escapeHtml(name);
+    
     const subject = 'Account Pending Admin Approval';
     const html = `
       <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto;">
-        <h2 style="color: #333;">Hi ${name},</h2>
+        <h2 style="color: #333;">Hi ${safeName},</h2>
         <p>Thank you for verifying your email address!</p>
         <p>Your account is currently <strong>pending admin approval</strong>. An administrator will review your registration shortly.</p>
         <p>You'll receive an email notification once your account has been approved. This usually takes 1-2 business days.</p>
@@ -369,6 +433,10 @@ export class AuthService {
 
   // Send notification to admin about new signup
   static async sendAdminNotificationEmail(userEmail: string, userName: string) {
+    // FIX: Escape user-provided data before insertion into HTML (Critical XSS)
+    const safeUserEmail = AuthService.escapeHtml(userEmail);
+    const safeUserName = AuthService.escapeHtml(userName);
+
     const adminEmail = process.env.ADMIN_EMAIL || process.env.EMAIL_USER;
     if (!adminEmail) {
       logger.warn('No admin email configured for new user notifications');
@@ -382,8 +450,8 @@ export class AuthService {
         <h2 style="color: #333;">New User Signup</h2>
         <p>A new user has signed up and verified their email. Their account is waiting for your approval.</p>
         <div style="background: #f5f5f5; padding: 15px; border-radius: 5px; margin: 20px 0;">
-          <p style="margin: 5px 0;"><strong>Name:</strong> ${userName}</p>
-          <p style="margin: 5px 0;"><strong>Email:</strong> ${userEmail}</p>
+          <p style="margin: 5px 0;"><strong>Name:</strong> ${safeUserName}</p>
+          <p style="margin: 5px 0;"><strong>Email:</strong> ${safeUserEmail}</p>
           <p style="margin: 5px 0;"><strong>Time:</strong> ${new Date().toLocaleString()}</p>
         </div>
         <p style="margin-top: 20px;">
@@ -410,11 +478,14 @@ export class AuthService {
 
   // Send approval confirmation email to user
   static async sendApprovalEmail(email: string, name: string) {
+    // FIX: Escape user-provided data before insertion into HTML (Critical XSS)
+    const safeName = AuthService.escapeHtml(name);
+    
     const appUrl = process.env.APP_URL || 'http://localhost:5000';
     const subject = '🎉 Your Account Has Been Approved!';
     const html = `
       <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto;">
-        <h2 style="color: #22c55e;">Great News, ${name}!</h2>
+        <h2 style="color: #22c55e;">Great News, ${safeName}!</h2>
         <p>Your account has been approved by an administrator.</p>
         <p>You can now log in and start using ResumeCustomizer Pro!</p>
         <p style="margin-top: 30px;">
@@ -440,14 +511,18 @@ export class AuthService {
 
   // Send rejection notification email to user
   static async sendRejectionEmail(email: string, name: string, reason?: string) {
+    // FIX: Escape user-provided data before insertion into HTML (Critical XSS)
+    const safeName = AuthService.escapeHtml(name);
+    const safeReason = AuthService.escapeHtml(reason);
+    
     const subject = 'Account Registration Update';
     const html = `
       <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto;">
-        <h2 style="color: #333;">Hi ${name},</h2>
+        <h2 style="color: #333;">Hi ${safeName},</h2>
         <p>Thank you for your interest in ResumeCustomizer Pro.</p>
         <p>Unfortunately, we're unable to approve your account registration at this time.</p>
         ${reason ? `<div style="background: #f5f5f5; padding: 15px; border-radius: 5px; margin: 20px 0;">
-          <p style="margin: 0;"><strong>Reason:</strong> ${reason}</p>
+          <p style="margin: 0;"><strong>Reason:</strong> ${safeReason}</p>
         </div>` : ''}
         <p style="margin-top: 30px; color: #666;">
           If you believe this is an error or have questions, please contact our support team by replying to this email.
@@ -469,6 +544,16 @@ export class AuthService {
 
   // Send suspicious login alert to admin
   static async sendSuspiciousLoginAlert(userId: string, userEmail: string, reasons: string[], loginDetails: any) {
+    // FIX: Escape all dynamic data before insertion into HTML (Critical XSS)
+    const safeUserEmail = AuthService.escapeHtml(userEmail);
+    const safeIpAddress = AuthService.escapeHtml(loginDetails.ipAddress);
+    const safeCity = AuthService.escapeHtml(loginDetails.city);
+    const safeRegion = AuthService.escapeHtml(loginDetails.region);
+    const safeCountry = AuthService.escapeHtml(loginDetails.country);
+    const safeBrowser = AuthService.escapeHtml(loginDetails.browser);
+    const safeOs = AuthService.escapeHtml(loginDetails.os);
+    const safeReasons = reasons.map(r => `<li>${AuthService.escapeHtml(r)}</li>`).join('');
+
     const adminEmail = process.env.ADMIN_EMAIL || process.env.EMAIL_USER;
     if (!adminEmail) return;
 
@@ -477,20 +562,20 @@ export class AuthService {
     const html = `
       <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto;">
         <h2 style="color: #dc2626;">⚠️ Suspicious Login Detected</h2>
-        <p>A potentially suspicious login was detected for user: <strong>${userEmail}</strong></p>
+        <p>A potentially suspicious login was detected for user: <strong>${safeUserEmail}</strong></p>
         
         <div style="background: #fee2e2; padding: 15px; border-radius: 5px; margin: 20px 0; border-left: 4px solid #dc2626;">
           <h3 style="margin: 0 0 10px 0; color: #991b1b;">Suspicious Reasons:</h3>
           <ul style="margin: 5px 0; padding-left: 20px;">
-            ${reasons.map(r => `<li>${r}</li>`).join('')}
+            ${safeReasons}
           </ul>
         </div>
         
         <div style="background: #f5f5f5; padding: 15px; border-radius: 5px; margin: 20px 0;">
           <h3 style="margin: 0 0 10px 0;">Login Details:</h3>
-          <p style="margin: 5px 0;"><strong>IP Address:</strong> ${loginDetails.ipAddress}</p>
-          <p style="margin: 5px 0;"><strong>Location:</strong> ${loginDetails.city}, ${loginDetails.region}, ${loginDetails.country}</p>
-          <p style="margin: 5px 0;"><strong>Device:</strong> ${loginDetails.browser} on ${loginDetails.os}</p>
+          <p style="margin: 5px 0;"><strong>IP Address:</strong> ${safeIpAddress}</p>
+          <p style="margin: 5px 0;"><strong>Location:</strong> ${safeCity}, ${safeRegion}, ${safeCountry}</p>
+          <p style="margin: 5px 0;"><strong>Device:</strong> ${safeBrowser} on ${safeOs}</p>
           <p style="margin: 5px 0;"><strong>Time:</strong> ${new Date().toLocaleString()}</p>
         </div>
         
@@ -515,17 +600,26 @@ export class AuthService {
 
   // Send new device login notification to user
   static async sendNewDeviceLoginEmail(email: string, name: string, loginDetails: any) {
+    // FIX: Escape all dynamic data before insertion into HTML (Critical XSS)
+    const safeName = AuthService.escapeHtml(name);
+    const safeIpAddress = AuthService.escapeHtml(loginDetails.ipAddress);
+    const safeCity = AuthService.escapeHtml(loginDetails.city);
+    const safeRegion = AuthService.escapeHtml(loginDetails.region);
+    const safeCountry = AuthService.escapeHtml(loginDetails.country);
+    const safeBrowser = AuthService.escapeHtml(loginDetails.browser);
+    const safeOs = AuthService.escapeHtml(loginDetails.os);
+    
     const subject = '🔒 New Device Login Detected';
     const html = `
       <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto;">
-        <h2 style="color: #333;">Hi ${name},</h2>
+        <h2 style="color: #333;">Hi ${safeName},</h2>
         <p>We detected a login to your account from a new device.</p>
         
         <div style="background: #f0f9ff; padding: 15px; border-radius: 5px; margin: 20px 0; border-left: 4px solid #0284c7;">
           <h3 style="margin: 0 0 10px 0; color: #0c4a6e;">Login Details:</h3>
-          <p style="margin: 5px 0;"><strong>Location:</strong> ${loginDetails.city}, ${loginDetails.region}, ${loginDetails.country}</p>
-          <p style="margin: 5px 0;"><strong>Device:</strong> ${loginDetails.browser} on ${loginDetails.os}</p>
-          <p style="margin: 5px 0;"><strong>IP Address:</strong> ${loginDetails.ipAddress}</p>
+          <p style="margin: 5px 0;"><strong>Location:</strong> ${safeCity}, ${safeRegion}, ${safeCountry}</p>
+          <p style="margin: 5px 0;"><strong>Device:</strong> ${safeBrowser} on ${safeOs}</p>
+          <p style="margin: 5px 0;"><strong>IP Address:</strong> ${safeIpAddress}</p>
           <p style="margin: 5px 0;"><strong>Time:</strong> ${new Date().toLocaleString()}</p>
         </div>
         

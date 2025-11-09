@@ -1,21 +1,22 @@
 import { Request, Response } from 'express';
 import passport from 'passport';
 import { AuthService } from '../services/authService';
-// FIX #4: Converted dynamic imports to static imports for performance
-import { users, userDevices, loginHistory } from '@shared/schema'; // Added loginHistory
+import { users, userDevices, loginHistory } from '@shared/schema';
 import { db } from '../db';
 import { eq, and } from 'drizzle-orm';
 import { TwoFactorAuth } from '../utils/twoFactor';
 import { ActivityTracker } from '../utils/activityTracker';
 import { EmailValidator } from '../utils/emailValidator';
-import { createHash } from 'crypto';
+import { createHash, randomInt } from 'crypto'; // FIX: ADDED randomInt
 import { logger } from '../utils/logger';
-// FIX #2 dependency: Imported sanitization helper
 import { sanitizeText } from '../utils/sanitizer';
-// FIX #4: Static imports for security/device utilities
 import { DeviceParser } from '../utils/deviceParser';
 import { GeolocationService } from '../services/geolocationService';
 import { SuspiciousActivityDetector } from '../utils/suspiciousActivityDetector';
+
+// --- MEDIUM FIX: Constants for Account Lockout ---
+const MAX_FAILED_ATTEMPTS = 5;
+const LOCKOUT_DURATION_MS = 15 * 60 * 1000; // 15 minutes
 
 function parseCookies(header?: string) {
   const result: Record<string, string> = {};
@@ -32,15 +33,18 @@ function parseCookies(header?: string) {
 }
 
 function extractTracking(req: Request) {
-  let referrer = (req.headers['referer'] || req.headers['referrer'] || '') as string;
+  let rawReferrer = (req.headers['referer'] || req.headers['referrer'] || '') as string;
   const q = req.query as Record<string, any>;
+  
+  // FIX: Sanitize query-based UTMs before assigning
   const utm: any = {
-    source: q.utm_source || undefined,
-    medium: q.utm_medium || undefined,
-    campaign: q.utm_campaign || undefined,
-    term: q.utm_term || undefined,
-    content: q.utm_content || undefined,
+    source: sanitizeText(q.utm_source || undefined), // FIX: Sanitize
+    medium: sanitizeText(q.utm_medium || undefined), // FIX: Sanitize
+    campaign: sanitizeText(q.utm_campaign || undefined), // FIX: Sanitize
+    term: sanitizeText(q.utm_term || undefined), // FIX: Sanitize
+    content: sanitizeText(q.utm_content || undefined), // FIX: Sanitize
   };
+
   // If no UTM in query, fallback to cookie
   if (!utm.source && !utm.medium && !utm.campaign && !utm.term && !utm.content) {
     try {
@@ -49,11 +53,21 @@ function extractTracking(req: Request) {
       if (raw) {
         const decoded = Buffer.from(raw, 'base64').toString('utf8');
         const obj = JSON.parse(decoded);
-        if (obj?.utm) Object.assign(utm, obj.utm);
-        if (!referrer && obj?.referrer) referrer = obj.referrer;
+        if (obj?.utm) {
+          // FIX: Sanitize cookie-based UTMs before merging
+          Object.keys(obj.utm).forEach(k => {
+            (utm as any)[k] = sanitizeText(obj.utm[k]);
+          });
+        }
+        if (!rawReferrer && obj?.referrer) {
+          rawReferrer = obj.referrer;
+        }
       }
     } catch {}
   }
+  
+  // FIX: Sanitize the final referrer value
+  const referrer = sanitizeText(rawReferrer);
 
   // Remove empty keys
   Object.keys(utm).forEach((k) => (utm as any)[k] === undefined && delete (utm as any)[k]);
@@ -86,6 +100,7 @@ export class AuthController {
     });
     
     // Log login to history
+    const { referrer: loginReferrer, utm: loginUtm } = extractTracking(req); // Use local variable names
     await db.insert(loginHistory).values({
       userId: user.id,
       status: 'success',
@@ -108,7 +123,8 @@ export class AuthController {
       isSuspicious: suspiciousCheck.isSuspicious,
       suspiciousReasons: suspiciousCheck.reasons,
       isNewLocation: suspiciousCheck.isNewLocation,
-      isNewDevice: suspiciousCheck.isNewDevice
+      isNewDevice: suspiciousCheck.isNewDevice,
+      // NOTE: referrer/utm are not standard in loginHistory schema, but activityTracker handles them.
     });
     
     // Send alerts if suspicious or new device
@@ -144,7 +160,7 @@ export class AuthController {
       ipAddress
     );
 
-    // Update last login with full tracking info
+    // Update last login with full tracking info AND reset failed attempts
     await db
       .update(users)
       .set({ 
@@ -156,8 +172,8 @@ export class AuthController {
         lastLoginBrowser: deviceInfo.browser,
         lastLoginOs: deviceInfo.os,
         lastLoginDevice: deviceInfo.deviceType,
-        failedLoginAttempts: 0,
-        accountLockedUntil: null,
+        failedLoginAttempts: 0, // FIX: Reset on SUCCESS
+        accountLockedUntil: null, // FIX: Reset on SUCCESS
       })
       .where(eq(users.id, user.id));
 
@@ -231,7 +247,7 @@ export class AuthController {
         verification.token
       );
 
-      // Log the registration with enhanced tracking
+      // Log the registration with enhanced tracking (FIX: uses sanitized values from extractTracking)
       const { referrer, utm } = extractTracking(req);
       await ActivityTracker.logActivity(
         newUser.id.toString(),
@@ -264,18 +280,67 @@ export class AuthController {
           return next(err);
         }
 
+        // --- MEDIUM FIX: Handle Authentication Failure with Lockout Logic ---
         if (!user) {
           logger.error({ info, email: req.body?.email }, 'Login failed - no user');
+
+          const rawEmail = req.body?.email;
+          if (rawEmail) {
+            const normalizedEmail = EmailValidator.normalizeEmail(rawEmail);
+            const failedUser = await db.query.users.findFirst({
+                where: eq(users.email, normalizedEmail),
+                columns: {
+                    id: true,
+                    failedLoginAttempts: true,
+                    accountLockedUntil: true,
+                    email: true
+                }
+            });
+
+            if (failedUser) {
+                const newAttempts = (failedUser.failedLoginAttempts || 0) + 1;
+                let update: any = { failedLoginAttempts: newAttempts };
+
+                // Apply Lockout
+                if (newAttempts >= MAX_FAILED_ATTEMPTS) {
+                    update.accountLockedUntil = new Date(Date.now() + LOCKOUT_DURATION_MS);
+                    logger.warn({ userId: failedUser.id, email: failedUser.email, attempts: newAttempts }, 'Account locked due to brute force.');
+                }
+                
+                await db.update(users).set(update).where(eq(users.id, failedUser.id));
+
+                // Log the failed login activity (FIX: uses sanitized values from extractTracking)
+                const { referrer, utm } = extractTracking(req);
+                await ActivityTracker.logActivity(
+                    failedUser.id,
+                    'login',
+                    'failure',
+                    { method: 'email', twoFactor: false, referrer, utm },
+                    req
+                );
+
+                if (newAttempts >= MAX_FAILED_ATTEMPTS) {
+                    return res.status(403).json({
+                        success: false,
+                        message: 'Account is temporarily locked due to too many failed attempts. Please try again later.'
+                    });
+                }
+            }
+          }
+          
           return res.status(401).json({ 
             success: false,
             message: info?.message || 'Invalid email or password' 
           });
         }
+        // --- END Lockout on Failure ---
+
 
         logger.info({ userId: user.id, email: user.email }, 'User authenticated successfully');
 
-        // Check if account is locked
+        // Check if account is locked (Lockout on Success path is critical)
         if (user.accountLockedUntil && user.accountLockedUntil > new Date()) {
+          // This should ideally be caught in the `if (!user)` block above, but kept as a redundant check.
           return res.status(403).json({ 
             success: false,
             message: 'Account is temporarily locked due to too many failed attempts. Please try again later.' 
@@ -310,8 +375,6 @@ export class AuthController {
         }
 
         if (user.approvalStatus !== 'approved') {
-          // Note: This status should ideally be handled by the 'pending_verification' check earlier, 
-          // but kept here for existing logic integrity.
           return res.status(403).json({ 
             success: false,
             message: 'Account verification pending. Please complete email verification first.',
@@ -321,7 +384,8 @@ export class AuthController {
 
         // If 2FA is enabled, generate and send code
         if (user.twoFactorEnabled) {
-          const code = Math.floor(100000 + Math.random() * 900000).toString();
+          // --- HIGH FIX: Use crypto.randomInt for cryptographically secure 2FA code ---
+          const code = randomInt(100000, 999999).toString().padStart(6, '0');
           const verificationToken = await AuthService.generate2FACode(user.id, code);
           
           await AuthService.sendTwoFactorCodeEmail(
@@ -348,7 +412,7 @@ export class AuthController {
           // FIX #3 & #4: Consolidated security and login logic into a helper method.
           const { userWithoutPassword, accessToken, refreshToken } = await AuthController._performLoginUpdates(req, user);
           
-          // Log successful login with specific tracking info
+          // Log successful login with specific tracking info (FIX: uses sanitized values from extractTracking)
           const { referrer, utm } = extractTracking(req);
           await ActivityTracker.logActivity(
             user.id,
@@ -395,19 +459,39 @@ export class AuthController {
         return res.status(400).json({ message: 'Invalid or expired verification request' });
       }
 
-      // In a real app, you would verify the code against the stored value
-      // For this example, we'll just check if it matches the one we sent
+      // Check if it matches the expected code
       if (code !== decoded.code) {
-        // Log failed attempt
-        {
-          const { referrer, utm } = extractTracking(req);
-          await ActivityTracker.logActivity(
-            decoded.userId,
-            'two_factor_verify',
-            'failure',
-            { method: 'email', referrer, utm },
-            req
-          );
+        // --- HIGH FIX: Implement 2FA Brute-Force Rate Limiting ---
+        const userForFailed2FA = await db.query.users.findFirst({
+          where: eq(users.id, decoded.userId),
+          columns: { id: true, failedLoginAttempts: true, email: true }
+        });
+
+        if (userForFailed2FA) {
+            const newAttempts = (userForFailed2FA.failedLoginAttempts || 0) + 1;
+            let update: any = { failedLoginAttempts: newAttempts };
+
+            // Apply Lockout
+            if (newAttempts >= MAX_FAILED_ATTEMPTS) {
+                update.accountLockedUntil = new Date(Date.now() + LOCKOUT_DURATION_MS);
+                logger.warn({ userId: userForFailed2FA.id, email: userForFailed2FA.email, attempts: newAttempts }, 'Account locked due to 2FA brute force.');
+            }
+            
+            await db.update(users).set(update).where(eq(users.id, userForFailed2FA.id));
+
+            // Log failed attempt (FIX: uses sanitized values from extractTracking)
+            const { referrer, utm } = extractTracking(req);
+            await ActivityTracker.logActivity(
+              userForFailed2FA.id,
+              'two_factor_verify',
+              'failure',
+              { method: 'email', referrer, utm },
+              req
+            );
+
+            if (newAttempts >= MAX_FAILED_ATTEMPTS) {
+              return res.status(403).json({ message: 'Account locked due to too many failed 2FA attempts.' });
+            }
         }
         
         return res.status(400).json({ message: 'Invalid verification code' });
@@ -422,10 +506,10 @@ export class AuthController {
         return res.status(404).json({ message: 'User not found' });
       }
 
-      // FIX #3: Use consolidated login updates logic for full security and tracking updates
+      // FIX #3: Use consolidated login updates logic for full security and tracking updates (resets failedLoginAttempts)
       const { userWithoutPassword, accessToken, refreshToken } = await AuthController._performLoginUpdates(req, user);
 
-      // Log successful 2FA verification
+      // Log successful 2FA verification (FIX: uses sanitized values from extractTracking)
       {
         const { referrer, utm } = extractTracking(req);
         await ActivityTracker.logActivity(
@@ -525,7 +609,7 @@ export class AuthController {
         })
         .where(eq(users.id, user.id));
 
-      // Log password reset
+      // Log password reset (FIX: uses sanitized values from extractTracking)
       {
         const { referrer, utm } = extractTracking(req);
         await ActivityTracker.logActivity(
@@ -614,7 +698,7 @@ export class AuthController {
                 )
               );
 
-            // Log the revocation
+            // Log the revocation (FIX: uses sanitized values from extractTracking)
             try {
               const { referrer, utm } = extractTracking(req);
               if (req.user) {
@@ -694,7 +778,7 @@ export class AuthController {
       // res.clearCookie('sid', { ... });
       // res.clearCookie('csrf_token', { path: '/' });
 
-      // Log the logout
+      // Log the logout (FIX: uses sanitized values from extractTracking)
       if (req.user) {
         const { referrer, utm } = extractTracking(req);
         await ActivityTracker.logActivity(
