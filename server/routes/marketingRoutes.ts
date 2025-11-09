@@ -66,7 +66,6 @@ import {
   type EmailThread,
   type EmailMessage,
   type EmailAccount,
-  type MarketingComment
 } from '@shared/schema';
 import { z } from 'zod';
 import { logger } from '../utils/logger';
@@ -966,54 +965,6 @@ router.patch('/requirements/:id', conditionalCSRF, writeOperationsRateLimiter, a
   }
 });
 
-// Add comment to requirement
-router.post('/requirements/:id/comments', conditionalCSRF, async (req, res) => {
-  try {
-    const { id } = req.params;
-    const { comment } = req.body;
-
-    // FIX: Sanitize input comment before use
-    const sanitizedComment = comment ? comment.trim() : '';
-    if (!sanitizedComment) {
-      return res.status(400).json({ message: 'Comment is required' });
-    }
-
-    // Get current requirement
-    const requirement = await db.query.requirements.findFirst({
-      where: eq(requirements.id, id),
-    });
-
-    if (!requirement) {
-      return res.status(404).json({ message: 'Requirement not found' });
-    }
-
-    // Add new comment to the array
-    const newComment: MarketingComment = {
-      comment: sanitizedComment,
-      timestamp: new Date(),
-      userId: req.user!.id,
-      userName: (req.user as any).firstName ? `${(req.user as any).firstName} ${(req.user as any).lastName || ''}`.trim() : req.user!.email
-    };
-
-    const currentComments = Array.isArray(requirement.marketingComments) ? requirement.marketingComments as MarketingComment[] : [];
-    const updatedComments = [...currentComments, newComment];
-
-    const [updatedRequirement] = await db
-      .update(requirements)
-      .set({ 
-        marketingComments: updatedComments as any,
-        updatedAt: new Date() 
-      })
-      .where(eq(requirements.id, id))
-      .returning();
-
-    res.json(updatedRequirement);
-  } catch (error) {
-    logger.error({ error: error }, 'Error adding comment:');
-    res.status(500).json({ message: 'Failed to add comment' });
-  }
-});
-
 // Delete requirement
 router.delete('/requirements/:id', conditionalCSRF, writeOperationsRateLimiter, async (req, res) => {
   try {
@@ -1242,11 +1193,28 @@ router.patch('/interviews/:id', conditionalCSRF, writeOperationsRateLimiter, asy
     
     // Sanitize input
     const sanitizedData = sanitizeInterviewData(req.body);
-    const updateData = insertInterviewSchema.partial().parse(sanitizedData);
+    let updateData = insertInterviewSchema.partial().parse(sanitizedData);
     
+    // FIX: Convert interviewDate string to Date object if present in payload
+    if (updateData.interviewDate) {
+      let parsedInterviewDate = updateData.interviewDate;
+      if (typeof parsedInterviewDate === 'string') {
+          const date = new Date(parsedInterviewDate);
+          if (isNaN(date.getTime())) {
+              return res.status(400).json({ 
+                message: 'Invalid interview date format',
+                errors: [{ path: ['interviewDate'], message: 'Invalid date format' }]
+              });
+          }
+          parsedInterviewDate = date;
+      }
+      // Overwrite the property in updateData with the validated Date object
+      updateData = { ...updateData, interviewDate: parsedInterviewDate };
+    }
+
     const [updatedInterview] = await db
       .update(interviews)
-      .set({ ...updateData, updatedAt: new Date() })
+      .set({ ...updateData, updatedAt: new Date() } as typeof interviews.$inferInsert)
       .where(eq(interviews.id, id))
       .returning();
     

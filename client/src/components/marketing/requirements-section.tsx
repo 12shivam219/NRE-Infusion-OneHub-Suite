@@ -229,10 +229,16 @@ export default function RequirementsSection() {
     },
   });
 
-  // Stabilize form props to prevent unnecessary re-renders
+  /**
+   * FIX: Update the useMemo dependency array.
+   * Depend on the entire 'selectedRequirement' object rather than just its 'id'.
+   * This ensures the memoized value updates if the object reference changes,
+   * which is necessary for robustness when internal state updates (e.g., via updateFieldMutation)
+   * cause the parent object to be re-created in state.
+   */
   const formInitialData = useMemo(() => {
     return showEditForm ? selectedRequirement : null;
-  }, [showEditForm, selectedRequirement?.id]); // Only depend on ID to avoid object reference changes
+  }, [showEditForm, selectedRequirement]);
 
   const handleFormSubmit = useCallback(
     async (requirementData: any[]) => {
@@ -264,11 +270,10 @@ export default function RequirementsSection() {
       case 'Submitted':
         return 'bg-orange-100 text-orange-800';
       case 'Closed':
+      case 'Interviewed':
         return 'bg-green-100 text-green-800';
       case 'Applied':
         return 'bg-purple-100 text-purple-800';
-      case 'Interviewed':
-        return 'bg-green-100 text-green-800';
       case 'Cancelled':
         return 'bg-red-100 text-red-800';
       default:

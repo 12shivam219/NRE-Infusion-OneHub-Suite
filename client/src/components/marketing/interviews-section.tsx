@@ -21,7 +21,7 @@ interface Interview {
 
 interface InterviewFormData {
   requirementId?: string;
-  interviewDate?: string;
+  interviewDate?: string | Date;
   interviewTime?: string;
   timezone: string;
   interviewType?: string;

@@ -11,7 +11,7 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { EnhancedField } from '@/components/ui/enhanced-field';
 import { BackupRecoveryDialog } from '@/components/ui/backup-recovery-dialog';
-import { EditableField } from '@/components/ui/editable-field';
+// REMOVED: import { EditableField } from '@/components/ui/editable-field'; // Removed unused import that caused the bug.
 import { useFormPersistence } from '@/hooks/useFormPersistence';
 import { useKeyboardShortcuts, getFormNavigationShortcuts } from '@/hooks/useKeyboardShortcuts';
 import { useFocusTrap, useAriaAnnouncer } from '@/hooks/useAccessibility';
@@ -723,87 +723,58 @@ Additional Information:
                           </FieldWrapper>
                         </div>
 
+                        {/* FIX: Replaced conditional EditableField with standard Input/Controller */}
                         <div>
                           <Controller
                             name="impName"
                             control={control}
                             render={({ field }) => (
-                              editMode ? (
-                                <EditableField
-                                  label="IMP Name"
+                              <div>
+                                <Label htmlFor="impName">IMP Name</Label>
+                                <Input
+                                  {...field}
                                   value={field.value || ''}
-                                  onSave={async (value) => {
-                                    field.onChange(value);
-                                  }}
+                                  placeholder="Enter IMP name"
                                 />
-                              ) : (
-                                <div>
-                                  <Label htmlFor="impName">IMP Name</Label>
-                                  <Input
-                                    {...field}
-                                    value={field.value || ''}
-                                    placeholder="Enter IMP name"
-                                  />
-                                </div>
-                              )
+                              </div>
                             )}
                           />
                         </div>
 
+                        {/* FIX: Replaced conditional EditableField with standard Input/Controller */}
                         <div>
                           <Controller
                             name="clientWebsite"
                             control={control}
                             render={({ field }) => (
-                              editMode ? (
-                                <EditableField
-                                  label="Client Website"
+                              <div>
+                                <Label htmlFor="clientWebsite">Client Website</Label>
+                                <Input
+                                  {...field}
                                   value={field.value || ''}
-                                  onSave={async (value) => {
-                                    field.onChange(value);
-                                  }}
                                   type="url"
+                                  placeholder="https://client-website.com"
                                 />
-                              ) : (
-                                <div>
-                                  <Label htmlFor="clientWebsite">Client Website</Label>
-                                  <Input
-                                    {...field}
-                                    value={field.value || ''}
-                                    type="url"
-                                    placeholder="https://client-website.com"
-                                  />
-                                </div>
-                              )
+                              </div>
                             )}
                           />
                         </div>
 
+                        {/* FIX: Replaced conditional EditableField with standard Input/Controller */}
                         <div>
                           <Controller
                             name="impWebsite"
                             control={control}
                             render={({ field }) => (
-                              editMode ? (
-                                <EditableField
-                                  label="IMP Website"
+                              <div>
+                                <Label htmlFor="impWebsite">IMP Website</Label>
+                                <Input
+                                  {...field}
                                   value={field.value || ''}
-                                  onSave={async (value) => {
-                                    field.onChange(value);
-                                  }}
                                   type="url"
+                                  placeholder="https://imp-website.com"
                                 />
-                              ) : (
-                                <div>
-                                  <Label htmlFor="impWebsite">IMP Website</Label>
-                                  <Input
-                                    {...field}
-                                    value={field.value || ''}
-                                    type="url"
-                                    placeholder="https://imp-website.com"
-                                  />
-                                </div>
-                              )
+                              </div>
                             )}
                           />
                         </div>
@@ -819,119 +790,80 @@ Additional Information:
                     </CardHeader>
                     <CardContent className="space-y-4">
                       <div className="grid grid-cols-2 gap-4">
+                        {/* FIX: Replaced conditional EditableField with standard Input/Controller */}
                         <div>
                           <Controller
                             name="vendorCompany"
                             control={control}
                             render={({ field }) => (
-                              editMode ? (
-                                <EditableField
-                                  label="Vendor Company"
+                              <div>
+                                <Label htmlFor="vendorCompany">Vendor Company</Label>
+                                <Input
+                                  {...field}
                                   value={field.value || ''}
-                                  onSave={async (value) => {
-                                    field.onChange(value);
-                                  }}
+                                  placeholder="Enter vendor company name"
                                 />
-                              ) : (
-                                <div>
-                                  <Label htmlFor="vendorCompany">Vendor Company</Label>
-                                  <Input
-                                    {...field}
-                                    value={field.value || ''}
-                                    placeholder="Enter vendor company name"
-                                  />
-                                </div>
-                              )
+                              </div>
                             )}
                           />
                         </div>
 
+                        {/* FIX: Replaced conditional EditableField with standard Input/Controller */}
                         <div>
                           <Controller
                             name="vendorWebsite"
                             control={control}
                             render={({ field }) => (
-                              editMode ? (
-                                <EditableField
-                                  label="Vendor Website"
+                              <div>
+                                <Label htmlFor="vendorWebsite">Vendor Website</Label>
+                                <Input
+                                  {...field}
                                   value={field.value || ''}
-                                  onSave={async (value) => {
-                                    field.onChange(value);
-                                  }}
                                   type="url"
+                                  placeholder="https://vendor-website.com"
                                 />
-                              ) : (
-                                <div>
-                                  <Label htmlFor="vendorWebsite">Vendor Website</Label>
-                                  <Input
-                                    {...field}
-                                    value={field.value || ''}
-                                    type="url"
-                                    placeholder="https://vendor-website.com"
-                                  />
-                                </div>
-                              )
+                              </div>
                             )}
                           />
                         </div>
 
+                        {/* FIX: Replaced conditional EditableField with standard Input/Controller */}
                         <div>
                           <Controller
                             name="vendorPersonName"
                             control={control}
                             render={({ field }) => (
-                              editMode ? (
-                                <EditableField
-                                  label="Vendor Contact Person"
+                              <div>
+                                <Label htmlFor="vendorPersonName">Vendor Contact Person</Label>
+                                <Input
+                                  {...field}
                                   value={field.value || ''}
-                                  onSave={async (value) => {
-                                    field.onChange(value);
-                                  }}
+                                  placeholder="Contact person name"
                                 />
-                              ) : (
-                                <div>
-                                  <Label htmlFor="vendorPersonName">Vendor Contact Person</Label>
-                                  <Input
-                                    {...field}
-                                    value={field.value || ''}
-                                    placeholder="Contact person name"
-                                  />
-                                </div>
-                              )
+                              </div>
                             )}
                           />
                         </div>
 
+                        {/* FIX: Replaced conditional EditableField with standard Input/Controller */}
                         <div>
                           <Controller
                             name="vendorPhone"
                             control={control}
                             render={({ field }) => (
-                              editMode ? (
-                                <EditableField
-                                  label="Vendor Phone"
+                              <div>
+                                <Label htmlFor="vendorPhone">Vendor Phone</Label>
+                                <Input
+                                  {...field}
                                   value={field.value || ''}
-                                  onSave={async (value) => {
-                                    const cleanValue = value.replace(/[^\d\s+()-.,ext]/gi, '').trim();
+                                  type="tel"
+                                  placeholder="Phone number"
+                                  onChange={(e) => {
+                                    const cleanValue = e.target.value.replace(/[^\d\s+()-.,ext]/gi, '').trim();
                                     field.onChange(cleanValue);
                                   }}
-                                  type="tel"
                                 />
-                              ) : (
-                                <div>
-                                  <Label htmlFor="vendorPhone">Vendor Phone</Label>
-                                  <Input
-                                    {...field}
-                                    value={field.value || ''}
-                                    type="tel"
-                                    placeholder="Phone number"
-                                    onChange={(e) => {
-                                      const cleanValue = e.target.value.replace(/[^\d\s+()-.,ext]/gi, '').trim();
-                                      field.onChange(cleanValue);
-                                    }}
-                                  />
-                                </div>
-                              )
+                              </div>
                             )}
                           />
                         </div>
@@ -941,29 +873,18 @@ Additional Information:
                             name="vendorEmail"
                             control={control}
                             render={({ field }) => (
-                              editMode ? (
-                                <EditableField
-                                  label="Vendor Email"
-                                  value={field.value || ''}
-                                  onSave={async (value) => {
-                                    field.onChange(value);
-                                  }}
-                                  type="email"
-                                />
-                              ) : (
-                                <div>
-                                  <Label htmlFor="vendorEmail">Vendor Email</Label>
-                                  <FieldWrapper error={getFieldError('vendorEmail')}>
-                                    <Input
-                                      {...field}
-                                      value={field.value || ''}
-                                      type="email"
-                                      placeholder="vendor@company.com"
-                                      className={errors.vendorEmail ? 'border-red-500' : ''}
-                                    />
-                                  </FieldWrapper>
-                                </div>
-                              )
+                              <div>
+                                <Label htmlFor="vendorEmail">Vendor Email</Label>
+                                <FieldWrapper error={getFieldError('vendorEmail')}>
+                                  <Input
+                                    {...field}
+                                    value={field.value || ''}
+                                    type="email"
+                                    placeholder="vendor@company.com"
+                                    className={errors.vendorEmail ? 'border-red-500' : ''}
+                                  />
+                                </FieldWrapper>
+                              </div>
                             )}
                           />
                         </div>
