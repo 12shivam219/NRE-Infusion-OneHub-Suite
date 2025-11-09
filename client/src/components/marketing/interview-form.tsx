@@ -149,20 +149,20 @@ export default function InterviewForm({
         displayRequirementId: z.string().optional(),
         interviewDate: z.date().or(z.string().min(1, "Interview date is required")),
         interviewTime: z.string().min(1, "Interview time is required"),
-        timezone: z.string().default("EST"),
-        interviewType: z.string().optional(),
-        status: z.string().default("Confirmed"),
+        timezone: z.string().min(1, "Timezone is required"),
+        interviewType: z.string().min(1, "Interview type is required"),
+        status: z.string().min(1, "Status is required"),
         consultantId: z.string().min(1, "Consultant is required"),
-        vendorCompany: z.string().optional(),
-        interviewWith: z.string().optional(),
+        vendorCompany: z.string().min(1, "Vendor company is required"),
+        interviewWith: z.string().min(1, "Interview with is required"),
         result: z.string().optional(),
-        round: z.string().optional(),
-        mode: z.string().optional(),
-        meetingType: z.string().optional(),
-        duration: z.string().optional(),
+        round: z.string().min(1, "Round is required"),
+        mode: z.string().min(1, "Mode is required"),
+        meetingType: z.string().min(1, "Meeting type is required"),
+        duration: z.string().min(1, "Duration is required"),
+        interviewer: z.string().min(1, "Interviewer is required"),
+        interviewLink: z.string().min(1, "Interview link/location is required"),
         subjectLine: z.string().optional(),
-        interviewer: z.string().optional(),
-        interviewLink: z.string().optional(),
         interviewFocus: z.string().optional(),
         specialNote: z.string().optional(),
         jobDescription: z.string().optional(),
@@ -175,7 +175,7 @@ export default function InterviewForm({
       interviewDate: '',
       interviewTime: '',
       timezone: 'EST',
-      interviewType: '',
+      interviewType: 'Technical',
       status: InterviewStatus.CONFIRMED,
       consultantId: '',
       vendorCompany: '',
@@ -183,7 +183,7 @@ export default function InterviewForm({
       result: '',
       round: '1',
       mode: 'Video',
-      meetingType: '',
+      meetingType: 'Zoom',
       duration: '1 hour',
       subjectLine: '',
       interviewer: '',
@@ -329,9 +329,16 @@ export default function InterviewForm({
                 Fill out the form to schedule a comprehensive interview
               </DialogDescription>
             </div>
-            <Badge variant={isValid ? 'default' : 'secondary'}>
-              {isValid ? 'Valid' : 'Incomplete'}
-            </Badge>
+            <div className="flex items-center gap-2">
+              <Badge variant={isValid ? 'default' : 'secondary'}>
+                {isValid ? 'Valid' : 'Incomplete'}
+              </Badge>
+              {!isValid && Object.keys(errors).length > 0 && (
+                <div className="text-xs text-red-500">
+                  Missing: {Object.keys(errors).join(', ')}
+                </div>
+              )}
+            </div>
           </div>
         </DialogHeader>
 

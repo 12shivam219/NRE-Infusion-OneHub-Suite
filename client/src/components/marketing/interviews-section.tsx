@@ -1,6 +1,7 @@
 import { useState, useMemo, lazy, Suspense } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { apiRequest, refreshCSRFToken } from '@/lib/queryClient';
+import SelectRequirementDialog from './select-requirement-dialog';
 
 interface Interview {
   id: string;
@@ -98,11 +99,13 @@ export default function InterviewsSection() {
   const queryClient = useQueryClient();
   const [activeTab, setActiveTab] = useState('All');
   const [searchQuery, setSearchQuery] = useState('');
+  const [showRequirementDialog, setShowRequirementDialog] = useState(false);
   const [showInterviewForm, setShowInterviewForm] = useState(false);
   const [selectedInterview, setSelectedInterview] = useState<InterviewFormData | null>(null);
   const [showEditForm, setShowEditForm] = useState(false);
   const [viewInterview, setViewInterview] = useState<Interview | null>(null);
   const [deleteConfirm, setDeleteConfirm] = useState<string | null>(null);
+  const [selectedRequirement, setSelectedRequirement] = useState<any>(null);
 
   // Debounce search query
   const debouncedSearch = useDebounce(searchQuery, 300);
@@ -269,6 +272,12 @@ export default function InterviewsSection() {
 
   const handleScheduleInterview = () => {
     setSelectedInterview(null);
+    setShowRequirementDialog(true);
+  };
+
+  const handleRequirementSelect = (requirement: any) => {
+    setSelectedRequirement(requirement);
+    setShowRequirementDialog(false);
     setShowInterviewForm(true);
   };
 
@@ -779,6 +788,38 @@ export default function InterviewsSection() {
           </DialogContent>
         </Dialog>
       )}
+
+      {/* Requirement Selection Dialog */}
+      <SelectRequirementDialog
+        open={showRequirementDialog}
+        onClose={() => setShowRequirementDialog(false)}
+        onRequirementSelect={handleRequirementSelect}
+      />
+
+      {/* Interview Form */}
+      <InterviewForm
+        open={showInterviewForm}
+        onClose={() => {
+          setShowInterviewForm(false);
+          setSelectedRequirement(null);
+        }}
+        onSubmit={handleFormSubmit}
+        initialData={
+          selectedInterview
+            ? { ...selectedInterview }
+            : selectedRequirement
+            ? {
+                requirementId: selectedRequirement.id,
+                displayRequirementId: selectedRequirement.displayId || selectedRequirement.id,
+                consultantId: selectedRequirement.consultantId || '',
+                vendorCompany: selectedRequirement.vendorCompany || '',
+                jobDescription: selectedRequirement.completeJobDescription || '',
+              }
+            : undefined
+        }
+        editMode={!!selectedInterview}
+        isSubmitting={createMutation.isPending || updateMutation.isPending}
+      />
     </div>
   );
 }
