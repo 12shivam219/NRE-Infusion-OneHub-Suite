@@ -45,7 +45,7 @@ import { InterviewStatus } from '@shared/schema';
 interface InterviewFormData {
   requirementId?: string;
   displayRequirementId?: string;  // For displaying the formatted requirement ID
-  interviewDate?: string;
+  interviewDate?: string | Date;
   interviewTime?: string;
   timezone: string;
   interviewType?: string;
@@ -142,7 +142,7 @@ export default function InterviewForm({
     setValue,
     reset,
     trigger,
-  } = useForm({
+  } = useForm<InterviewFormData>({
     resolver: zodResolver(
       z.object({
         requirementId: z.string().min(1, "Requirement is required"),
@@ -201,11 +201,23 @@ export default function InterviewForm({
     if (open && initialData) {
       console.log('InterviewForm received initialData:', initialData);
       
+      // Helper function to safely convert the date string from the API to a Date object
+      // const parseDate = (dateString: string | undefined): Date | string => {
+      //   if (!dateString) return '';
+      //   const dateObj = new Date(dateString);
+      //   return isNaN(dateObj.getTime()) ? dateString : dateObj;
+      // };
+
+      // Helper to convert date string to Date object only if it exists
+      const dateToSet = initialData.interviewDate 
+        ? new Date(initialData.interviewDate)
+        : '';
+
       // Reset form with initial data
       reset({
         requirementId: initialData.requirementId || '',
         displayRequirementId: initialData.displayRequirementId || initialData.requirementId || '',
-        interviewDate: initialData.interviewDate || '',
+        interviewDate: dateToSet,
         interviewTime: initialData.interviewTime || '',
         timezone: initialData.timezone || 'EST',
         interviewType: initialData.interviewType || '',
